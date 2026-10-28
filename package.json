@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/app.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build:overlay && tsx src/app.ts",
+    "build:overlay": "esbuild src/overlay/d3-entry.ts --bundle --format=iife --outfile=public/d3.bundle.js --minify",
+    "build": "npm run build:overlay && tsc -p tsconfig.json",
     "start": "node dist/app.js",
     "test": "vitest run",
     "reindex": "tsx src/reindex-cli.ts"
@@ -14,11 +15,17 @@
     "@twurple/auth": "^8.0.0",
     "@twurple/chat": "^8.0.0",
     "@vitest/pretty-format": "^2.1.9",
+    "chokidar": "^4.0.3",
+    "d3": "^7.9.0",
     "dotenv": "^16.4.7",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/d3": "^7.4.3",
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

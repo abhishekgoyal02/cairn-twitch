@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cairn memory graph</title>
+  <script src="/d3.bundle.js"></script>
+  <style>
+    :root { color-scheme: dark; --ink:#f4f0e8; --muted:#a9a49b; --line:#716b62; --stone:#f4b860; --canon:#7bdff2; --bad:#f28482; }
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:transparent; color:var(--ink); font-family:system-ui,sans-serif; }
+    svg { width:100vw; height:100vh; display:block; overflow:visible; }
+    .edge { stroke:var(--line); stroke-width:1.5; opacity:.65; }
+    .node { stroke:var(--ink); stroke-width:1.5; cursor:pointer; }
+    .node.unconfirmed { stroke-dasharray:4 3; }
+    .node.superseded { opacity:.35; }
+    .node.canon { stroke:var(--canon); stroke-width:2.5; }
+    .node.new-node { animation: node-pulse 900ms ease-out 2; }
+    @keyframes node-pulse { 0% { filter: drop-shadow(0 0 0 var(--canon)); } 45% { filter: drop-shadow(0 0 12px var(--canon)); } 100% { filter: drop-shadow(0 0 0 transparent); } }
+    .label { fill:var(--ink); font-size:14px; font-weight:500; paint-order:stroke; stroke:#12110f; stroke-width:3px; stroke-opacity:.8; pointer-events:none; }
+    #card { position:fixed; right:16px; bottom:16px; max-width:340px; padding:14px 16px; border:1px solid #514d47; border-radius:12px; background:rgba(18,17,15,.92); box-shadow:0 8px 30px #0008; display:none; }
+    #card h2 { margin:0 0 6px; font-size:16px; } #card p { margin:5px 0; } #card small { color:var(--muted); }
+  </style>
+</head>
+<body>
+  <svg aria-label="Cairn community memory graph" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet"></svg>
+  <aside id="card"></aside>
+  <script>
+    (() => {
+      if (typeof d3 === 'undefined') return;
+      const svg = d3.select('svg'), svgElement = svg.node(), card = document.getElementById('card');
+      const edgeLayer = svg.append('g'), nodeLayer = svg.append('g');
+      let simulation, currentGraph = null, socket = null, reconnectTimer = null, connecting = false;
+      const layoutNodes = new Map();
+      function viewport() { const rect = svgElement.getBoundingClientRect(); const width = Math.max(1, rect.width || window.innerWidth || 1); const height = Math.max(1, rect.height || window.innerHeight || 1); svg.attr('viewBox', `0 0 ${width} ${height}`); return { width, height }; }
+      function validGraph(graph) { return graph && graph.version === 1 && Number.isInteger(graph.revision) && Array.isArray(graph.nodes) && Array.isArray(graph.edges) && graph.nodes.every(n => n && typeof n.id === 'string' && typeof n.title === 'string' && typeof n.status === 'string') && graph.edges.every(e => e && typeof e.id === 'string' && typeof e.source === 'string' && typeof e.target === 'string'); }
+      function styleFor(node) { return { shape: node.type === 'stone' ? 'circle' : node.type === 'lore' ? 'diamond' : 'square', outline: ({stone:'#f4b860',lore:'#7bdff2',loop:'#c7f9cc',person:'#d0bfff',stream:'#ff9f9f'})[node.type] || '#f4f0e8', outlineStyle: node.status === 'unconfirmed' ? 'dashed' : 'solid', opacity: node.status === 'superseded' ? .35 : 1 }; }
+      function visibleGraph(graph) { const nodes = [...graph.nodes].sort((a,b) => b.created.localeCompare(a.created) || a.id.localeCompare(b.id)).slice(0,150); const ids = new Set(nodes.map(n => n.id)); return { nodes, edges: graph.edges.filter(e => ids.has(e.source) && ids.has(e.target)).sort((a,b) => a.id.localeCompare(b.id)) }; }
+      function render(graph) {
+        if (!validGraph(graph) || (currentGraph && graph.revision <= currentGraph.revision)) return;
+        const oldIds = new Set((currentGraph && currentGraph.nodes || []).map(n => n.id));
+        const next = visibleGraph(graph), newIds = new Set(next.nodes.filter(n => !oldIds.has(n.id)).map(n => n.id));
+        const activeIds = new Set(next.nodes.map(n => n.id));
+        const layout = next.nodes.map(node => { const existing = layoutNodes.get(node.id); if (existing) { Object.assign(existing, node); return existing; } const created = { ...node }; layoutNodes.set(node.id, created); return created; });
+        for (const id of layoutNodes.keys()) if (!activeIds.has(id)) layoutNodes.delete(id);
+        const layoutEdges = next.edges.map(edge => ({ ...edge }));
+        currentGraph = graph;
+        const link = edgeLayer.selectAll('line.edge').data(layoutEdges, d => d.id).join(enter => enter.append('line').attr('class','edge'), update => update, exit => exit.remove());
+        const groups = nodeLayer.selectAll('g.node-group').data(layout, d => d.id);
+        groups.exit().remove();
+        const entered = groups.enter().append('g').attr('class','node-group').on('click', (_, d) => showCard(d));
+        const merged = entered.merge(groups);
+        merged.each(function(d) {
+          const el = d3.select(this), visual = styleFor(d), cls = `node ${d.status}${newIds.has(d.id) ? ' new-node' : ''}`;
+          el.selectAll('circle,rect,polygon').remove();
+          if (visual.shape === 'circle') el.append('circle').attr('r', d.status === 'canon' ? 11 : 9);
+          else if (visual.shape === 'diamond') el.append('polygon').attr('points','0,-12 12,0 0,12 -12,0');
+          else el.append('rect').attr('width',19).attr('height',19).attr('x',-9.5).attr('y',-9.5);
+          el.select('circle,rect,polygon').attr('class', cls).style('stroke', visual.outline).style('stroke-dasharray', visual.outlineStyle === 'dashed' ? '4 3' : null).style('opacity', visual.opacity);
+          el.selectAll('text.label').data([d]).join('text').attr('class','label').attr('x',11).attr('y',4).text(d.title);
+        });
+        const size = viewport();
+        const tick = () => { link.attr('x1', d => Number.isFinite(d.source.x) ? d.source.x : size.width / 2).attr('y1', d => Number.isFinite(d.source.y) ? d.source.y : size.height / 2).attr('x2', d => Number.isFinite(d.target.x) ? d.target.x : size.width / 2).attr('y2', d => Number.isFinite(d.target.y) ? d.target.y : size.height / 2); merged.attr('transform', d => `translate(${Number.isFinite(d.x) ? d.x : size.width / 2},${Number.isFinite(d.y) ? d.y : size.height / 2})`); };
+        if (!simulation) simulation = d3.forceSimulation(layout).force('link', d3.forceLink(layoutEdges).id(d => d.id).distance(120)).force('charge', d3.forceManyBody().strength(-220)).force('collision', d3.forceCollide(30)).force('center', d3.forceCenter(size.width / 2, size.height / 2)).velocityDecay(.42);
+        else { simulation.nodes(layout); simulation.force('link').links(layoutEdges); simulation.force('center', d3.forceCenter(size.width / 2, size.height / 2)); }
+        simulation.on('tick', tick).alpha(simulation.alpha() > .05 ? simulation.alpha() : .35).restart();
+      }
+      function showCard(d) { card.style.display='block'; card.innerHTML=`<h2>${escapeHtml(d.title)}</h2><p>Status: ${escapeHtml(d.status)}</p><small>${escapeHtml(d.id)} · ${escapeHtml(d.author)}</small>`; }
+      function showLoreCard(event) { if (!event || !event.card) return; card.style.display='block'; card.innerHTML=`<h2>${escapeHtml(event.card.title)}</h2><p>${escapeHtml(event.card.answer)}</p><small>${escapeHtml(event.card.noteId)} · ${escapeHtml(event.card.status)}</small>`; }
+      function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+      function scheduleReconnect() { if (reconnectTimer) return; reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 1000); }
+      async function connect() {
+        if (connecting || (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING))) return;
+        connecting = true;
+        try { const initial = await fetch('/api/graph', { cache:'no-store' }); render(await initial.json()); } catch (_) {}
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        socket = new WebSocket(`${protocol}//${location.host}/ws`);
+        socket.onopen = () => { connecting = false; };
+        socket.onmessage = event => { try { const message = JSON.parse(event.data); if (message.type === 'graph.updated' || message.type === 'graph.snapshot') render(message.graph); else if (message.type === 'lore.card') showLoreCard(message); } catch (_) {} };
+        socket.onclose = () => { socket = null; connecting = false; scheduleReconnect(); };
+        socket.onerror = () => socket && socket.close();
+      }
+      addEventListener('resize', () => { const size = viewport(); if (simulation) simulation.force('center', d3.forceCenter(size.width / 2, size.height / 2)).alpha(.2).restart(); });
+      connect();
+    })();
+  </script>
+</body>
+</html>

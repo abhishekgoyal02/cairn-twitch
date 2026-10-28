@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { SqliteIndex, type IndexedNote } from '../index/sqlite-index.js';
 import { parseStone, type StoneNote } from '../vault/stone-schema.js';
+import type { LoreCardModel } from '../overlay/types.js';
 
 const NOT_IN_VAULT = 'Not in the vault yet.';
 
@@ -9,6 +10,7 @@ export interface WhyServiceOptions {
   vaultPath: string;
   index: SqliteIndex;
   log?: (message: string) => void;
+  onCard?: (card: LoreCardModel) => void;
 }
 
 interface Evidence {
@@ -20,15 +22,19 @@ export class WhyService {
   constructor(private readonly options: WhyServiceOptions) {}
 
   public async answer(topic: string): Promise<string> {
+    return (await this.answerWithCard(topic)).text;
+  }
+
+  public async answerWithCard(topic: string): Promise<{ text: string; card?: LoreCardModel }> {
     const query = topic.trim();
-    if (!query) return 'Usage: !why <topic>';
+    if (!query) return { text: 'Usage: !why <topic>' };
 
     let candidates: IndexedNote[];
     try {
       candidates = this.options.index.search(query, 8);
     } catch {
       this.options.log?.('SQLite search failed for !why; run npm run reindex.');
-      return 'The vault index needs rebuilding. Run npm run reindex.';
+      return { text: 'The vault index needs rebuilding. Run npm run reindex.' };
     }
 
     const evidence: Evidence[] = [];
@@ -46,7 +52,7 @@ export class WhyService {
       }
     }
 
-    if (evidence.length === 0) return NOT_IN_VAULT;
+    if (evidence.length === 0) return { text: NOT_IN_VAULT };
 
     evidence.sort((left, right) => {
       const statusDifference = statusRank(left.note.frontmatter.status) - statusRank(right.note.frontmatter.status);
@@ -57,13 +63,22 @@ export class WhyService {
     const selected = evidence.slice(0, 3);
     const conflicting = new Set(selected.map(({ note }) => normalizeForComparison(note.body))).size > 1;
     if (conflicting && selected.length > 1) {
-      return `The vault contains conflicting evidence. Sources: ${selected.map(formatCitation).join(', ')}.`;
+      return { text: `The vault contains conflicting evidence. Sources: ${selected.map(formatCitation).join(', ')}.` };
     }
 
     const primary = selected[0];
     const label = primary.note.frontmatter.status === 'unconfirmed' ? 'Unconfirmed: ' : '';
     const citations = selected.map(formatCitation).join(', ');
-    return `${label}${summarize(primary.note.body)} Sources: ${citations}.`;
+    const text = `${label}${summarize(primary.note.body)} Sources: ${citations}.`;
+    const card: LoreCardModel = {
+      topic: query,
+      answer: text,
+      title: primary.note.frontmatter.title,
+      noteId: primary.note.frontmatter.id,
+      status: primary.note.frontmatter.status,
+    };
+    this.options.onCard?.(card);
+    return { text, card };
   }
 
   private safeNotePath(relativePath: string): string {

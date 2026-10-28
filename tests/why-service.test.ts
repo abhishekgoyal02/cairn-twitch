@@ -44,10 +44,13 @@ afterEach(async () => {
 
 describe('WhyService', () => {
   it('retrieves validated evidence and cites the stable stone ID', async () => {
-    const { service, index } = await setup(makeNote('st_a1b2c3', 'Chat renamed the boss Kevin after a failed speedrun attempt.'));
+    const cards: unknown[] = [];
+    const { root, index } = await setup(makeNote('st_a1b2c3', 'Chat renamed the boss Kevin after a failed speedrun attempt.'));
+    const service = new (WhyService)({ vaultPath: root, index, onCard: (card) => cards.push(card) });
     await expect(service.answer('Kevin')).resolves.toBe(
       'Unconfirmed: Chat renamed the boss Kevin after a failed speedrun attempt. Sources: st_a1b2c3 (unconfirmed).',
     );
+    expect(cards).toHaveLength(1);
     index.close();
   });
 
@@ -65,9 +68,12 @@ describe('WhyService', () => {
   });
 
   it('returns exact missing and empty-topic responses', async () => {
-    const { service, index } = await setup();
+    const cards: unknown[] = [];
+    const { root, index } = await setup();
+    const service = new (WhyService)({ vaultPath: root, index, onCard: (card) => cards.push(card) });
     await expect(service.answer('unknown lore')).resolves.toBe('Not in the vault yet.');
     await expect(service.answer('   ')).resolves.toBe('Usage: !why <topic>');
+    expect(cards).toHaveLength(0);
     index.close();
   });
 
