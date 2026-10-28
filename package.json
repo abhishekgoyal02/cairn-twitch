@@ -1,0 +1,26 @@
+{
+  "name": "cairn-twitch",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/app.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/app.js",
+    "test": "vitest run",
+    "reindex": "tsx src/reindex-cli.ts"
+  },
+  "dependencies": {
+    "@twurple/auth": "^8.0.0",
+    "@twurple/chat": "^8.0.0",
+    "@vitest/pretty-format": "^2.1.9",
+    "dotenv": "^16.4.7",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
