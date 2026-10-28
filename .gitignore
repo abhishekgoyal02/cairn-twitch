@@ -1,0 +1,24 @@
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Local database and logs
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
