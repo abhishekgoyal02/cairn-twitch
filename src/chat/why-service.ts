@@ -3,6 +3,7 @@ import path from 'node:path';
 import { SqliteIndex, type IndexedNote } from '../index/sqlite-index.js';
 import { parseStone, type StoneNote } from '../vault/stone-schema.js';
 import type { LoreCardModel } from '../overlay/types.js';
+import type { LlmAdapter } from '../intelligence/llm.js';
 
 const NOT_IN_VAULT = 'Not in the vault yet.';
 
@@ -11,6 +12,7 @@ export interface WhyServiceOptions {
   index: SqliteIndex;
   log?: (message: string) => void;
   onCard?: (card: LoreCardModel) => void;
+  llm?: LlmAdapter;
 }
 
 interface Evidence {
@@ -37,6 +39,8 @@ export class WhyService {
       return { text: 'The vault index needs rebuilding. Run npm run reindex.' };
     }
 
+    const queryTokens = meaningfulTokens(query);
+    if (queryTokens.length === 0) return { text: NOT_IN_VAULT };
     const evidence: Evidence[] = [];
     for (const indexed of candidates) {
       if (indexed.status === 'superseded') continue;
@@ -46,7 +50,7 @@ export class WhyService {
           throw new Error('front matter ID does not match the index');
         }
         if (note.frontmatter.status === 'superseded') continue;
-        evidence.push({ indexed, note });
+        if (isRelevant(query, note, queryTokens)) evidence.push({ indexed, note });
       } catch {
         this.options.log?.(`Skipped invalid or missing evidence for note ${indexed.id}.`);
       }
@@ -61,7 +65,21 @@ export class WhyService {
     });
 
     const selected = evidence.slice(0, 3);
-    const conflicting = new Set(selected.map(({ note }) => normalizeForComparison(note.body))).size > 1;
+    if (this.options.llm) {
+      const model = await this.options.llm.answerWhy({
+        question: query,
+        notes: selected.map(({ note }) => ({ id: note.frontmatter.id, title: note.frontmatter.title, body: note.body })),
+      });
+      const validCitations = model.citations.filter((id) => selected.some(({ note }) => note.frontmatter.id === id));
+      if (model.answer && validCitations.length > 0) {
+        const text = `${model.answer} Sources: ${validCitations.join(', ')}.`.slice(0, 499);
+        const primary = selected.find(({ note }) => validCitations.includes(note.frontmatter.id)) ?? selected[0];
+        const card: LoreCardModel = { topic: query, answer: text, title: primary.note.frontmatter.title, noteId: primary.note.frontmatter.id, status: primary.note.frontmatter.status };
+        this.options.onCard?.(card);
+        return { text, card };
+      }
+    }
+    const conflicting = containsContradiction(selected.map(({ note }) => note.body), queryTokens);
     if (conflicting && selected.length > 1) {
       return { text: `The vault contains conflicting evidence. Sources: ${selected.map(formatCitation).join(', ')}.` };
     }
@@ -106,6 +124,38 @@ function summarize(body: string): string {
 
 function normalizeForComparison(value: string): string {
   return value.replace(/\s+/gu, ' ').trim().toLowerCase();
+}
+
+const STOP_WORDS = new Set('a an and are as at be by for from how in is it of on or that the their this to was what when where with why after before about into'.split(' '));
+
+function meaningfulTokens(value: string): string[] {
+  return [...new Set((value.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token)))];
+}
+
+function isRelevant(query: string, note: StoneNote, queryTokens: string[]): boolean {
+  const title = normalizeForComparison(note.frontmatter.title);
+  const body = normalizeForComparison(note.body);
+  const haystack = `${title} ${body}`;
+  const haystackTokens = new Set(haystack.match(/[\p{L}\p{N}]+/gu) ?? []);
+  const matched = queryTokens.filter((token) => haystackTokens.has(token));
+  if (matched.length === 0) return false;
+  const phrase = normalizeForComparison(query).split(/\s+/u).filter((token) => token && !STOP_WORDS.has(token)).join(' ');
+  const phraseMatch = phrase.length > 0 && haystack.includes(phrase);
+  if (queryTokens.length === 1) return true;
+  return phraseMatch || matched.length >= Math.min(2, queryTokens.length);
+}
+
+function containsContradiction(bodies: string[], queryTokens: string[]): boolean {
+  for (let left = 0; left < bodies.length; left += 1) for (let right = left + 1; right < bodies.length; right += 1) {
+    const a = normalizeForComparison(bodies[left]); const b = normalizeForComparison(bodies[right]);
+    const shared = queryTokens.filter((token) => a.includes(token) && b.includes(token)).length;
+    if (shared === 0) continue;
+    const aNegative = /\b(?:not|never|no longer|wrong|false|isn't|wasn't)\b/iu.test(a);
+    const bNegative = /\b(?:not|never|no longer|wrong|false|isn't|wasn't)\b/iu.test(b);
+    if (aNegative !== bNegative) return true;
+  }
+  return false;
 }
 
 function formatCitation(evidence: Evidence): string {

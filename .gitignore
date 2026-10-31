@@ -17,6 +17,7 @@ coverage/
 *.sqlite-wal
 *.log
 cairn-vault/
+.cairn/
 
 # Editor and operating-system files
 .vscode/

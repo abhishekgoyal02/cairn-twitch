@@ -72,4 +72,26 @@ describe('SqliteIndex and reindex', () => {
     expect(summary.indexed).toBe(1);
     expect(summary.invalid[0].file).toBe(path.join('stones', 'broken.md'));
   });
+
+  it('rebuilds a lore note with an unquoted YAML timestamp', async () => {
+    const root = await makeRoot();
+    await fs.mkdir(path.join(root, 'stones'), { recursive: true });
+    await fs.mkdir(path.join(root, 'lore'), { recursive: true });
+    await fs.writeFile(path.join(root, 'stones', 'stone.md'), [
+      '---', 'id: st_a1b2c3', 'type: stone', 'title: Kevin', 'status: unconfirmed',
+      "created: '2026-10-31T12:00:00.000Z'", 'author: Viewer', 'source:',
+      '  - msg_id: message-1', "    ts: '2026-10-31T12:00:00.000Z'", '---', 'Kevin is the boss.', '',
+    ].join('\n'), 'utf8');
+    await fs.writeFile(path.join(root, 'lore', 'lore.md'), [
+      '---', 'id: lo_a1b2c3', 'type: lore', 'title: Kevin lore', 'status: unconfirmed',
+      'created: 2026-10-31T12:00:00.000Z', 'author: Viewer', '---', 'Related: [[st_a1b2c3]]', '',
+    ].join('\n'), 'utf8');
+    const summary = await reindexVault(root);
+    expect(summary).toEqual({ indexed: 2, invalid: [] });
+    const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
+    const lore = index.list().find((entry) => entry.id === 'lo_a1b2c3');
+    expect(lore).toMatchObject({ type: 'lore', created: '2026-10-31T12:00:00.000Z' });
+    expect(typeof lore?.created).toBe('string');
+    index.close();
+  });
 });

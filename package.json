@@ -9,7 +9,10 @@
     "build": "npm run build:overlay && tsc -p tsconfig.json",
     "start": "node dist/app.js",
     "test": "vitest run",
-    "reindex": "tsx src/reindex-cli.ts"
+    "reindex": "tsx src/reindex-cli.ts",
+    "lint:vault": "tsx src/lint-vault-cli.ts",
+    "llm:diagnose": "tsx src/intelligence/diagnose-cli.ts",
+    "demo:globe": "npm run build:overlay && tsx src/globe-demo.ts"
   },
   "dependencies": {
     "@twurple/auth": "^8.0.0",

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { GraphService } from '../src/graph/service.js';
 import { SqliteIndex } from '../src/index/sqlite-index.js';
 import { StoneVaultWriter } from '../src/vault/writer.js';
-import { serializeStone, type StoneNote } from '../src/vault/stone-schema.js';
+import { serializeNote, serializeStone, type LoreNote, type StoneNote } from '../src/vault/stone-schema.js';
 import { reindexVault } from '../src/index/reindex.js';
 
 const roots: string[] = [];
@@ -62,7 +62,7 @@ describe('GraphService', () => {
   it('coalesces delayed unlink/add by stable ID without a false replacement', async () => {
     const root = await makeRoot();
     const writer = new StoneVaultWriter(root);
-    const original = await writer.writeStone(note('st_a1b2c3', 'Kevin', 'Kevin.'));
+    const original = (await writer.writeStone(note('st_a1b2c3', 'Kevin', 'Kevin.'))).absolutePath;
     const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
     const service = new GraphService({ vaultPath: root, index, debounceMs: 5, renameGraceMs: 100 });
     await service.start();
@@ -141,11 +141,59 @@ describe('GraphService', () => {
     index.close();
   });
 
+  it('reconciles lore-directory notes, wikilinks, edits, removals, and reindexing', async () => {
+    const root = await makeRoot();
+    const stone = note('st_a1b2c3', 'Kevin', 'Kevin is the boss.');
+    const lore: LoreNote = {
+      frontmatter: {
+        id: 'lo_a1b2c3', type: 'lore', title: 'Kevin lore', status: 'unconfirmed',
+        created: '2026-10-28T18:42:10.000Z', author: 'Viewer',
+      },
+      body: 'Related: [[st_a1b2c3]]',
+    };
+    await fs.mkdir(path.join(root, 'stones'), { recursive: true });
+    await fs.mkdir(path.join(root, 'lore'), { recursive: true });
+    await fs.writeFile(path.join(root, 'stones', 'kevin.md'), serializeStone(stone), 'utf8');
+    const lorePath = path.join(root, 'lore', 'kevin-lore.md');
+    await fs.writeFile(lorePath, serializeNote(lore), 'utf8');
+
+    const indexPath = path.join(root, '.cairn', 'index.sqlite');
+    const index = new SqliteIndex(indexPath, root);
+    const service = new GraphService({ vaultPath: root, index, debounceMs: 5 });
+    await service.start();
+    expect(service.getSnapshot().nodes.map((node) => node.id)).toEqual(['lo_a1b2c3', 'st_a1b2c3']);
+    expect(service.getSnapshot().edges).toEqual([{
+      id: 'lo_a1b2c3->st_a1b2c3:wikilink', source: 'lo_a1b2c3', target: 'st_a1b2c3', type: 'wikilink',
+    }]);
+    expect(index.list().map((entry) => entry.type).sort()).toEqual(['lore', 'stone']);
+
+    const editedLore: LoreNote = { ...lore, frontmatter: { ...lore.frontmatter, title: 'Updated Kevin lore' }, body: 'Updated relationship: [[st_a1b2c3]]' };
+    await fs.writeFile(lorePath, serializeNote(editedLore), 'utf8');
+    await service.flush();
+    expect(service.getSnapshot().nodes.find((node) => node.id === 'lo_a1b2c3')).toMatchObject({ title: 'Updated Kevin lore', body: 'Updated relationship: [[st_a1b2c3]]' });
+    expect(service.getSnapshot().edges).toHaveLength(1);
+
+    await fs.unlink(lorePath);
+    await service.flush();
+    expect(service.getSnapshot().nodes.map((node) => node.id)).toEqual(['st_a1b2c3']);
+    expect(service.getSnapshot().edges).toEqual([]);
+    await service.stop();
+    index.close();
+
+    // Recreate the valid lore file and prove the disposable index includes it.
+    await fs.writeFile(lorePath, serializeNote(lore), 'utf8');
+    const summary = await reindexVault(root);
+    expect(summary.invalid).toEqual([]);
+    const rebuilt = new SqliteIndex(indexPath, root);
+    expect(rebuilt.list().map((entry) => entry.type).sort()).toEqual(['lore', 'stone']);
+    rebuilt.close();
+  });
+
   it('reconciles additions, edits, renames, links, invalid notes and deletions', async () => {
     const root = await makeRoot();
     const writer = new StoneVaultWriter(root);
-    const targetPath = await writer.writeStone(note('st_a1b2c3', 'Kevin', 'Kevin is the boss.'));
-    const sourcePath = await writer.writeStone(note('st_d4e5f6', 'Story', 'The story points to [[Kevin]], [[Kevin|Boss]], and [[Kevin#origin]].'));
+    const targetPath = (await writer.writeStone(note('st_a1b2c3', 'Kevin', 'Kevin is the boss.'))).absolutePath;
+    const sourcePath = (await writer.writeStone(note('st_d4e5f6', 'Story', 'The story points to [[Kevin]], [[Kevin|Boss]], and [[Kevin#origin]].'))).absolutePath;
     const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
     const service = new GraphService({ vaultPath: root, index, debounceMs: 1 });
     await service.start();

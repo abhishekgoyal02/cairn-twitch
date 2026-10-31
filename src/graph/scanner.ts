@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { parseStone } from '../vault/stone-schema.js';
+import { parseNote, validateLore } from '../vault/stone-schema.js';
 import type { GraphDiagnostic, VaultNoteRecord } from './types.js';
 
 export interface ScanResult {
@@ -11,13 +11,17 @@ export interface ScanResult {
 
 export async function scanVault(vaultPath: string): Promise<ScanResult> {
   const root = path.resolve(vaultPath);
-  const stonesPath = path.join(root, 'stones');
+  const contentPaths = [path.join(root, 'stones'), path.join(root, 'lore')];
   const notes: VaultNoteRecord[] = [];
   const diagnostics: GraphDiagnostic[] = [];
   const paths = new Set<string>();
   let files: string[] = [];
   try {
-    files = await collectMarkdown(stonesPath);
+    for (const contentPath of contentPaths) {
+      try { files.push(...await collectMarkdown(contentPath)); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       diagnostics.push({ kind: 'filesystem', message: `Unable to scan vault: ${error instanceof Error ? error.message : String(error)}` });
@@ -28,7 +32,7 @@ export async function scanVault(vaultPath: string): Promise<ScanResult> {
     const relativePath = path.relative(root, file).replaceAll('\\', '/');
     paths.add(relativePath);
     try {
-      const note = parseStone(await fs.readFile(file, 'utf8'));
+      const note = parseNote(await fs.readFile(file, 'utf8'));
       notes.push({ relativePath, note });
     } catch (error) {
       diagnostics.push({
@@ -38,6 +42,13 @@ export async function scanVault(vaultPath: string): Promise<ScanResult> {
       });
     }
   }
+
+  const stoneIds = new Set(notes.filter((record) => record.note.frontmatter.type === 'stone').map((record) => record.note.frontmatter.id));
+  const validNotes = notes.filter((record) => {
+    if (record.note.frontmatter.type !== 'lore') return true;
+    try { validateLore(record.note as import('../vault/stone-schema.js').LoreNote, stoneIds); return true; }
+    catch (error) { diagnostics.push({ kind: 'invalid', path: record.relativePath, noteId: record.note.frontmatter.id, message: error instanceof Error ? error.message : String(error) }); return false; }
+  });
 
   const byId = new Map<string, VaultNoteRecord>();
   const unique: VaultNoteRecord[] = [];
@@ -55,7 +66,7 @@ export async function scanVault(vaultPath: string): Promise<ScanResult> {
     byId.set(record.note.frontmatter.id, record);
     unique.push(record);
   }
-  return { notes: unique, diagnostics, paths };
+  return { notes: unique.filter((record) => validNotes.includes(record)), diagnostics, paths };
 }
 
 async function collectMarkdown(directory: string): Promise<string[]> {

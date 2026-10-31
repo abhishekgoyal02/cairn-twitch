@@ -4,23 +4,36 @@ import type { NormalizedChatMessage } from './types.js';
 
 export type StoneCommandHandler = (message: NormalizedChatMessage, body: string) => Promise<string>;
 export type WhyCommandHandler = (topic: string) => Promise<string>;
+export type GovernanceCommandHandler = (message: NormalizedChatMessage, args: string) => Promise<string>;
 
 export interface MessageProcessorOptions {
   botUsername: string;
+  botUserId?: string;
   deduplicator?: MessageDeduplicator;
   reply: (channel: string, text: string) => Promise<void> | void;
   stone?: StoneCommandHandler;
   why?: WhyCommandHandler;
+  canon?: GovernanceCommandHandler;
+  correct?: GovernanceCommandHandler;
+  forget?: GovernanceCommandHandler;
   log?: (message: string) => void;
 }
 
 export class MessageProcessor {
   private readonly deduplicator: MessageDeduplicator;
-  private readonly botUsername: string;
+  private botUsername: string;
+  private botUserId?: string;
 
   constructor(private readonly options: MessageProcessorOptions) {
     this.deduplicator = options.deduplicator ?? new MessageDeduplicator();
     this.botUsername = options.botUsername.toLowerCase();
+    this.botUserId = options.botUserId?.trim();
+  }
+
+  /** Bind the authenticated Twitch identity after OAuth bootstrap completes. */
+  public setBotIdentity(userId: string, username: string): void {
+    this.botUserId = userId.trim();
+    this.botUsername = username.trim().toLowerCase();
   }
 
   public async process(message: NormalizedChatMessage | null): Promise<void> {
@@ -29,7 +42,9 @@ export class MessageProcessor {
       return;
     }
 
-    if (message.sender.toLowerCase() === this.botUsername) return;
+    // Use Twitch's immutable user ID when available. Username comparison is a
+    // defensive fallback for synthetic/test events or incomplete metadata.
+    if ((this.botUserId && message.senderId === this.botUserId) || message.sender.trim().toLowerCase() === this.botUsername) return;
     if (!this.deduplicator.accept(message.id)) return;
 
     const command = parseCommand(message.text);
@@ -71,6 +86,26 @@ export class MessageProcessor {
       return;
     }
 
+    if (command.name === 'canon' || command.name === 'correct' || command.name === 'forget') {
+      const handler = command.name === 'canon' ? this.options.canon
+        : command.name === 'correct' ? this.options.correct : this.options.forget;
+      if (!handler) return;
+      const authorized = message.isModerator || message.isBroadcaster;
+      const args = command.args;
+      if (!authorized) {
+        await this.safeReply(message.channel, 'Only moderators or the broadcaster can use that command.');
+        return;
+      }
+      try {
+        const response = await handler(message, args);
+        await this.safeReply(message.channel, response);
+      } catch {
+        this.options.log?.(`Failed to process !${command.name} in #${message.channel}.`);
+        await this.safeReply(message.channel, 'That command could not be completed.');
+      }
+      return;
+    }
+
     if (command.name !== 'ping') return;
 
     this.options.log?.(`Recognized !ping from ${message.sender} in #${message.channel}.`);
@@ -81,5 +116,10 @@ export class MessageProcessor {
     } catch {
       this.options.log?.(`Failed to send !ping reply in #${message.channel}.`);
     }
+  }
+
+  private async safeReply(channel: string, text: string): Promise<void> {
+    try { await this.options.reply(channel, text.slice(0, 499)); }
+    catch { this.options.log?.(`Failed to send reply in #${channel}.`); }
   }
 }

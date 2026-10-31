@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { promises as fs } from 'node:fs';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { scanVault } from './scanner.js';
 import { projectGraph, type GraphProjector } from './projection.js';
@@ -53,7 +54,17 @@ export class GraphService {
     if (this.lifecycle === 'ready' || this.lifecycle === 'initializing') return;
     this.lifecycle = 'initializing';
     this.ready = false;
-    this.watcher = chokidar.watch(path.join(this.vaultPath, 'stones'), {
+    // Ensure watched roots exist before Chokidar subscribes. Otherwise a file
+    // created while a missing directory is being materialized can be missed.
+    await fs.mkdir(path.join(this.vaultPath, 'stones'), { recursive: true });
+    await fs.mkdir(path.join(this.vaultPath, 'lore'), { recursive: true });
+    // Watch every active Markdown content directory. The scanner and index
+    // already treat stones and lore as authoritative sources; watching both
+    // keeps Obsidian edits live without duplicating watcher instances.
+    this.watcher = chokidar.watch([
+      path.join(this.vaultPath, 'stones'),
+      path.join(this.vaultPath, 'lore'),
+    ], {
       ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 },
       ignored: (watchedPath) => this.isIgnored(watchedPath),

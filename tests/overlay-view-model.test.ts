@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createLoreCardModel, isGraphSnapshot, nodeVisualStyle, reconcileGraph, selectVisibleGraph } from '../src/overlay/view-model.js';
+import { createLoreCardModel, createNodeDetailModel, createNodeTooltipModel, gradientKeyForNode, isGraphSnapshot, NODE_GRADIENTS, nodeLabelOffsetY, nodeVisualStyle, reconcileGraph, selectVisibleGraph, shortNodeLabel } from '../src/overlay/view-model.js';
 import type { GraphSnapshot } from '../src/graph/types.js';
+import { curvedEdgePath, mergeLayoutPoints, neighborIds, type LayoutPoint } from '../src/overlay/geometry.js';
+import { connectedComponents, edgeEndpointId, fibonacciSphere, globeNodeIds, globeRadiusForViewport, globeVisibleEdges, largeComponentIds, projectSphere } from '../src/overlay/globe.js';
 
 const node = (id: string, title = id, status: 'unconfirmed' | 'canon' | 'superseded' = 'unconfirmed', created = '2026-10-29T00:00:00.000Z') => ({
   id, type: 'stone', title, status, relativePath: `stones/${id}.md`, path: `stones/${id}.md`, created, author: 'Viewer',
@@ -11,9 +13,32 @@ const snapshot = (revision: number, nodes = [node('st_a1b2c3')], edges: GraphSna
 
 describe('overlay view model', () => {
   it('maps types and statuses to distinct visual styles', () => {
-    expect(nodeVisualStyle(node('st_a1b2c3'))).toMatchObject({ shape: 'circle', outlineStyle: 'dashed', opacity: 1 });
-    expect(nodeVisualStyle({ ...node('lore-1'), type: 'lore', status: 'canon' })).toMatchObject({ shape: 'diamond', outlineStyle: 'solid' });
+    expect(nodeVisualStyle(node('st_a1b2c3'))).toMatchObject({ shape: 'circle', fillMode: 'gradient', outlineStyle: 'solid', opacity: 1 });
+    expect(nodeVisualStyle({ ...node('lore-1'), type: 'lore', status: 'canon' })).toMatchObject({ shape: 'circle', fillMode: 'solid', outlineStyle: 'solid' });
     expect(nodeVisualStyle(node('old-1', 'Old', 'superseded'))).toMatchObject({ opacity: 0.35, outlineStyle: 'solid' });
+  });
+
+  it('derives concise labels without changing authoritative titles', () => {
+    const title = 'The community remember the Kevin rename as failed speedrun meme';
+    expect(shortNodeLabel(title).split(' ')).toHaveLength(2);
+    expect(shortNodeLabel(title)).toBe('Kevin Rename');
+    expect(node('st_a1b2c3', title).title).toBe(title);
+  });
+
+  it('assigns stable gradients and exposes only available detail metadata', () => {
+    const first = { ...node('st_a1b2c3', 'Kevin'), body: 'A remembered moment.', source: [{ msg_id: 'msg-1', ts: '2026-10-29T00:00:00.000Z' }], history: [{ type: 'canonized' as const, at: '2026-10-30T00:00:00.000Z' }] };
+    expect(gradientKeyForNode(first)).toBe(gradientKeyForNode({ ...first }));
+    expect(createNodeTooltipModel(first)).toMatchObject({ title: 'Kevin', preview: 'A remembered moment.', status: 'unconfirmed' });
+    expect(createNodeDetailModel(first, [{ id: 'st_d4e5f6', title: 'Story' }])).toMatchObject({ id: 'st_a1b2c3', body: 'A remembered moment.', history: [{ type: 'canonized' }], related: [{ title: 'Story' }] });
+  });
+
+  it('uses deterministic varied colours and puts compact labels beneath every node', () => {
+    expect(NODE_GRADIENTS).toEqual(['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown', 'white']);
+    const colours = new Set(Array.from({ length: 80 }, (_, index) => gradientKeyForNode(node(`st_palette_${index}`))));
+    expect(colours.size).toBeGreaterThanOrEqual(6);
+    expect(gradientKeyForNode(node('st_palette_1'))).toBe(gradientKeyForNode(node('st_palette_1')));
+    expect(nodeLabelOffsetY(13)).toBe(29);
+    expect(nodeLabelOffsetY(14)).toBe(30);
   });
 
   it('keeps stable IDs, detects only genuine additions, and marks updates', () => {
@@ -70,5 +95,80 @@ describe('overlay view model', () => {
     ]));
     expect(result.nodes).toHaveLength(2);
     expect(result.edges).toEqual([{ id: 'edge-1', source: first.id, target: second.id, type: 'wikilink' }]);
+  });
+
+  it('reuses layout object identity and coordinates for stable IDs', () => {
+    const existing: (LayoutPoint & { title?: string })[] = [{ id: 'st_a1b2c3', x: 120, y: 80 }];
+    const updated = mergeLayoutPoints(existing, [{ id: 'st_a1b2c3', title: 'Updated' }], { x: 500, y: 400 });
+    expect(updated[0]).toBe(existing[0]);
+    expect(updated[0]).toMatchObject({ x: 120, y: 80, title: 'Updated' });
+    const added = mergeLayoutPoints(updated, [{ id: 'st_a1b2c3' }, { id: 'st_d4e5f6' }], { x: 500, y: 400 });
+    expect(added[1]).toMatchObject({ id: 'st_d4e5f6', x: 500, y: 400 });
+  });
+
+  it('produces deterministic curved paths and neighbor highlighting sets', () => {
+    const edge = { id: 'edge-1', source: 'st_a1b2c3', target: 'st_d4e5f6', type: 'wikilink' as const };
+    expect(curvedEdgePath(edge, { x: 0, y: 0 }, { x: 100, y: 0 })).toBe(curvedEdgePath(edge, { x: 0, y: 0 }, { x: 100, y: 0 }));
+    expect(curvedEdgePath(edge, { x: 0, y: 0 }, { x: 100, y: 0 })).toContain('Q');
+    expect(neighborIds([edge], 'st_a1b2c3')).toEqual(new Set(['st_d4e5f6']));
+    expect(neighborIds([edge], null)).toEqual(new Set());
+  });
+
+  it('retains the legacy component helper behavior when given an explicit threshold', () => {
+    const make = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({ id: `${prefix}${index}` }));
+    const chain = (nodes: { id: string }[]) => nodes.slice(1).map((node, index) => ({ source: nodes[index].id, target: node.id }));
+    const twentyFive = make(25, 'a');
+    expect(largeComponentIds(twentyFive, chain(twentyFive), 26)).toEqual(new Set());
+    const twentySix = make(26, 'b');
+    expect(largeComponentIds(twentySix, chain(twentySix), 26).size).toBe(26);
+  });
+
+  it('does not count isolated or unrelated components toward globe activation', () => {
+    const large = Array.from({ length: 26 }, (_, index) => ({ id: `large-${index}` }));
+    const small = Array.from({ length: 25 }, (_, index) => ({ id: `small-${index}` }));
+    const edges = large.slice(1).map((node, index) => ({ source: large[index].id, target: node.id }));
+    const active = largeComponentIds([...large, ...small, { id: 'isolated' }], edges, 26);
+    expect(active.size).toBe(26);
+    expect(active.has('small-0')).toBe(false);
+  });
+
+  it('uses total visible nodes for globe mode, including disconnected notes', () => {
+    const nodes24 = Array.from({ length: 24 }, (_, index) => ({ id: `n-${index}` }));
+    const nodes25 = Array.from({ length: 25 }, (_, index) => ({ id: `n-${index}` }));
+    const nodes26 = Array.from({ length: 26 }, (_, index) => ({ id: `n-${index}` }));
+    const nodes32 = Array.from({ length: 32 }, (_, index) => ({ id: `n-${index}` }));
+    expect(globeNodeIds(nodes24)).toEqual(new Set());
+    expect(globeNodeIds(nodes25)).toEqual(new Set());
+    expect(globeNodeIds(nodes26)).toEqual(new Set(nodes26.map((entry) => entry.id)));
+    expect(globeNodeIds(Array.from({ length: 27 }, (_, index) => ({ id: `n-${index}` })))).toHaveLength(27);
+    expect(globeNodeIds(nodes32).size).toBe(32);
+    expect(fibonacciSphere([...globeNodeIds(nodes26)]).map((point) => point.id)).toHaveLength(26);
+    // Removing the 26th active node returns immediately to force mode.
+    expect(globeNodeIds(nodes26.slice(0, 25))).toEqual(new Set());
+  });
+
+  it('hides globe edges by default and shows only selected or dragged real relationships', () => {
+    const edges = [
+      { id: 'ab', source: 'a', target: 'b', type: 'wikilink' as const },
+      { id: 'bc', source: 'b', target: 'c', type: 'wikilink' as const },
+      { id: 'de', source: 'd', target: 'e', type: 'wikilink' as const },
+    ];
+    expect(globeVisibleEdges(edges, true, null, null)).toEqual([]);
+    expect(globeVisibleEdges(edges, true, 'b', null).map((edge) => edge.id)).toEqual(['ab', 'bc']);
+    expect(globeVisibleEdges(edges, true, null, 'd').map((edge) => edge.id)).toEqual(['de']);
+    expect(globeVisibleEdges(edges, false, null, null)).toEqual(edges);
+  });
+
+  it('creates stable evenly distributed sphere coordinates and preserves radius under rotation', () => {
+    const ids = ['st_c', 'st_a', 'st_b'];
+    const first = fibonacciSphere(ids);
+    expect(fibonacciSphere([...ids].reverse())).toEqual(first);
+    const projected = projectSphere(first[0], { x: 100, y: 80 }, 50, Math.PI / 3);
+    expect(Math.hypot(projected.x - 100, projected.y - 80)).toBeLessThanOrEqual(50.001);
+    expect(connectedComponents([{ id: 'a' }, { id: 'b' }], [{ source: 'a', target: 'missing' }])).toEqual([['a'], ['b']]);
+    expect(globeRadiusForViewport(1920, 1080)).toBeGreaterThan(400);
+    expect(globeRadiusForViewport(1280, 720)).toBeGreaterThan(250);
+    expect(edgeEndpointId('st_a1b2c3')).toBe('st_a1b2c3');
+    expect(edgeEndpointId({ id: 'st_d4e5f6' })).toBe('st_d4e5f6');
   });
 });

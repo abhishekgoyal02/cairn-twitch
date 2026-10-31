@@ -117,16 +117,8 @@ export class GraphServer {
     if (pathname === '/api/ready') return this.json(response, 200, { ready: this.graph.isReady() });
     if (pathname === '/api/graph') return this.json(response, 200, this.graph.getSnapshot());
     if (pathname === '/d3.bundle.js') return this.staticFile(response, path.join(path.dirname(this.overlayPath), 'd3.bundle.js'), 'text/javascript; charset=utf-8');
-    if (pathname === '/' || pathname === '/overlay.html') {
-      try {
-        const html = await fs.readFile(this.overlayPath, 'utf8');
-        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        response.end(method === 'HEAD' ? undefined : html);
-      } catch {
-        this.json(response, 404, { error: 'overlay not found' });
-      }
-      return;
-    }
+    if (pathname === '/assets/cairn-logo.png') return this.staticFile(response, path.resolve(process.cwd(), 'assets', 'Minimalist Stack of Five Pebbles.png'), 'image/png');
+    if (pathname === '/' || pathname === '/overlay.html') return this.html(response, method, this.overlayPath, 'overlay not found');
     this.json(response, 404, { error: 'not found' });
   }
 
@@ -137,6 +129,16 @@ export class GraphServer {
       response.end(content);
     } catch {
       this.json(response, 404, { error: 'asset not found' });
+    }
+  }
+
+  private async html(response: import('node:http').ServerResponse, method: string, filePath: string, missingMessage: string): Promise<void> {
+    try {
+      const html = await fs.readFile(filePath, 'utf8');
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(method === 'HEAD' ? undefined : html);
+    } catch {
+      this.json(response, 404, { error: missingMessage });
     }
   }
 

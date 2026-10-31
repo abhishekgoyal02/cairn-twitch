@@ -14,6 +14,10 @@ export const projectGraph: GraphProjector = (notes, revision, diagnostics = []):
       path: relativePath,
       created: note.frontmatter.created,
       author: note.frontmatter.author,
+      body: note.body,
+      source: note.frontmatter.type === 'stone' ? note.frontmatter.source.map((source) => ({ ...source })) : undefined,
+      history: note.frontmatter.history?.map((event) => ({ ...event })),
+      supersedes: note.frontmatter.type === 'stone' ? note.frontmatter.supersedes : undefined,
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
   const links = resolveWikilinks(notes);

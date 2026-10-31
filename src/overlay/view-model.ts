@@ -1,21 +1,57 @@
 import type { GraphNode, GraphSnapshot } from '../graph/types.js';
-import type { LoreCardModel, NodeVisualStyle, ReconciledGraph, VisibleGraph } from './types.js';
+import type { LoreCardModel, NodeDetailModel, NodeTooltipModel, NodeVisualStyle, ReconciledGraph, VisibleGraph } from './types.js';
 
-const NODE_COLORS: Record<string, string> = {
-  stone: '#f4b860',
-  lore: '#7bdff2',
-  loop: '#c7f9cc',
-  person: '#d0bfff',
-  stream: '#ff9f9f',
-};
+/** Stable base colours for memory stones. Each is lit toward white in the SVG. */
+export const NODE_GRADIENTS = ['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown', 'white'] as const;
+
+function stableHash(value: string): number {
+  let hash = 0;
+  for (const character of value) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  return Math.abs(hash);
+}
+
+export function gradientKeyForNode(node: Pick<GraphNode, 'type'> & { id?: string }): (typeof NODE_GRADIENTS)[number] {
+  return NODE_GRADIENTS[stableHash(`${node.type}:${node.id ?? ''}`) % NODE_GRADIENTS.length];
+}
+
+export function shortNodeLabel(title: string): string {
+  const words = title.trim().replace(/[\u2013\u2014:|()[\]{}]+/gu, ' ').split(/\s+/u).filter(Boolean);
+  const filler = new Set(['the', 'a', 'an', 'community', 'thing', 'memory', 'chat', 'this', 'that', 'is', 'was', 'are', 'remember', 'after', 'as', 'failed', 'speedrun', 'attempt', 'meme']);
+  const meaningful = words.filter((word) => !filler.has(word.toLocaleLowerCase()));
+  const selected = (meaningful.length >= 2 ? meaningful : words).slice(0, 2);
+  if (selected.length === 0) return title.trim().slice(0, 32) || 'Memory';
+  return selected.map((word) => {
+    const shortened = word.length > 24 ? `${word.slice(0, 23)}…` : word;
+    return shortened.charAt(0).toLocaleUpperCase() + shortened.slice(1);
+  }).join(' ');
+}
+
+/** Labels are centered beneath the rendered node, including in globe mode. */
+export function nodeLabelOffsetY(radius: number): number { return radius + 16; }
 
 export function nodeVisualStyle(node: Pick<GraphNode, 'type' | 'status'>): NodeVisualStyle {
   return {
-    shape: node.type === 'stone' ? 'circle' : node.type === 'lore' ? 'diamond' : 'square',
-    outline: NODE_COLORS[node.type] ?? '#f4f0e8',
-    outlineStyle: node.status === 'unconfirmed' ? 'dashed' : 'solid',
+    shape: node.type === 'stone' || node.type === 'lore' ? 'circle' : 'square',
+    outline: '#9146ff',
+    // Keep the overlay clean and readable: status is conveyed by solid stroke
+    // weight/opacity rather than a dotted boundary around every new stone.
+    outlineStyle: 'solid',
     opacity: node.status === 'superseded' ? 0.35 : 1,
+    gradient: gradientKeyForNode(node),
+    fillMode: node.type === 'lore' ? 'solid' : 'gradient',
   };
+}
+
+export function createNodeTooltipModel(node: Pick<GraphNode, 'title' | 'status' | 'author' | 'body'>): NodeTooltipModel {
+  const preview = node.body?.replace(/\s+/gu, ' ').trim();
+  return { title: node.title, status: node.status, author: node.author, preview: preview ? (preview.length > 140 ? `${preview.slice(0, 139)}…` : preview) : undefined };
+}
+
+export function createNodeDetailModel(
+  node: Pick<GraphNode, 'id' | 'title' | 'status' | 'author' | 'created' | 'body' | 'source' | 'history' | 'supersedes'>,
+  related: Array<{ id: string; title: string }>,
+): NodeDetailModel {
+  return { ...createNodeTooltipModel(node), id: node.id, body: node.body, created: node.created, source: node.source, history: node.history, supersedes: node.supersedes, related };
 }
 
 export function selectVisibleGraph(snapshot: GraphSnapshot, limit = 150): VisibleGraph {
@@ -68,5 +104,7 @@ function isGraphNode(value: unknown): value is GraphNode {
   const node = value as Partial<GraphNode>;
   return typeof node.id === 'string' && typeof node.type === 'string' && typeof node.title === 'string' &&
     typeof node.status === 'string' && typeof node.created === 'string' && typeof node.author === 'string' &&
-    typeof (node.path ?? node.relativePath) === 'string';
+    typeof (node.path ?? node.relativePath) === 'string' &&
+    (node.body === undefined || typeof node.body === 'string') &&
+    (node.source === undefined || Array.isArray(node.source));
 }

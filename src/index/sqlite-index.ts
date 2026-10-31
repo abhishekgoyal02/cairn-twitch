@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
-import type { StoneNote } from '../vault/stone-schema.js';
+import type { VaultNote } from '../vault/stone-schema.js';
 
 const require = createRequire(import.meta.url);
 const sqliteModuleName = 'node:' + 'sqlite';
@@ -51,7 +51,7 @@ export class SqliteIndex {
     }
   }
 
-  public upsert(note: StoneNote, relativePath: string): void {
+  public upsert(note: VaultNote, relativePath: string): void {
     this.withTransaction(() => {
       this.db.prepare('DELETE FROM notes_fts WHERE id = ?').run(note.frontmatter.id);
       this.db.prepare(`
@@ -129,6 +129,13 @@ export class SqliteIndex {
              relative_path AS relativePath, body
       FROM notes ORDER BY id
     `).all() as unknown as IndexedNote[];
+  }
+
+  public remove(id: string): void {
+    this.withTransaction(() => {
+      this.db.prepare('DELETE FROM notes_fts WHERE id = ?').run(id);
+      this.db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+    });
   }
 
   public close(): void {

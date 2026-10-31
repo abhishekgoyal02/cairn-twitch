@@ -33,9 +33,10 @@ describe('StoneVaultWriter', () => {
   it('creates the vault layout and writes a readable Markdown note', async () => {
     const root = await makeRoot();
     const writer = new StoneVaultWriter(root);
-    const file = await writer.writeStone(note);
-    expect(file).toContain(path.join('stones', '2026-10-28-'));
-    expect(parseStone(await fs.readFile(file, 'utf8'))).toEqual(note);
+    const receipt = await writer.writeStone(note);
+    expect(receipt.relativePath).toContain(path.join('stones', '2026-10-28-').replaceAll('\\', '/'));
+    expect(receipt.verified).toBe(true);
+    expect(parseStone(await fs.readFile(receipt.absolutePath, 'utf8'))).toEqual(note);
     expect(await fs.readdir(path.join(root, 'stones'))).toHaveLength(1);
   });
 

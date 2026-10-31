@@ -41,6 +41,25 @@ describe('MessageProcessor', () => {
     expect(reply).toHaveBeenCalledTimes(0);
   });
 
+  it('ignores a self-message by authenticated Twitch user ID before stone handling', async () => {
+    const reply = vi.fn();
+    const stone = vi.fn();
+    const processor = new MessageProcessor({ botUsername: 'hackathonpart', botUserId: 'bot-123', reply, stone });
+    await processor.process(message({ id: 'self-id', sender: 'different-login', senderId: 'bot-123', text: '!stone must not persist' }));
+    expect(stone).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
+  });
+
+  it('matches self usernames case-insensitively and still accepts another viewer', async () => {
+    const reply = vi.fn();
+    const stone = vi.fn().mockResolvedValue('Stone saved: st_a1b2c3 (unconfirmed).');
+    const processor = new MessageProcessor({ botUsername: 'HackathonPart', reply, stone });
+    await processor.process(message({ id: 'self-case', sender: 'HACKATHONPART', text: '!stone ignore me' }));
+    await processor.process(message({ id: 'viewer-case', sender: 'TestViewer', text: '!stone accept me' }));
+    expect(stone).toHaveBeenCalledTimes(1);
+    expect(stone).toHaveBeenCalledWith(expect.objectContaining({ sender: 'TestViewer' }), 'accept me');
+  });
+
   it('replies to testviewer but ignores the configured bot username', async () => {
     const reply = vi.fn();
     const processor = new MessageProcessor({ botUsername: 'hackathonpart', reply });
@@ -98,5 +117,14 @@ describe('MessageProcessor', () => {
     expect(why).toHaveBeenCalledTimes(1);
     expect(why).toHaveBeenCalledWith('Kevin');
     expect(reply).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects governance commands from viewers without invoking the handler', async () => {
+    const reply = vi.fn();
+    const canon = vi.fn();
+    const processor = new MessageProcessor({ botUsername: 'cairnbot', reply, canon });
+    await processor.process(message({ id: 'viewer-canon', text: '!canon st_a1b2c3', isModerator: false, isBroadcaster: false }));
+    expect(canon).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalledWith('channel', 'Only moderators or the broadcaster can use that command.');
   });
 });

@@ -32,8 +32,8 @@ const setup = async (...notes: StoneNote[]) => {
   const writer = new StoneVaultWriter(root);
   const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
   for (const note of notes) {
-    const file = await writer.writeStone(note);
-    index.upsert(note, path.relative(root, file));
+    const receipt = await writer.writeStone(note);
+    index.upsert(note, receipt.relativePath);
   }
   return { root, index, service: new WhyService({ vaultPath: root, index }) };
 };
@@ -92,9 +92,10 @@ describe('WhyService', () => {
     const root = await makeRoot();
     const writer = new StoneVaultWriter(root);
     const note = makeNote('st_a1b2c3', 'Kevin is in this note.');
-    const file = await writer.writeStone(note);
+    const receipt = await writer.writeStone(note);
+    const file = receipt.absolutePath;
     const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
-    index.upsert(note, path.relative(root, file));
+    index.upsert(note, receipt.relativePath);
     const logs: string[] = [];
     const service = new WhyService({ vaultPath: root, index, log: (entry) => logs.push(entry) });
     await fs.writeFile(file, '---\nid: broken\ntype: stone\n---\nMalformed', 'utf8');
@@ -104,5 +105,41 @@ describe('WhyService', () => {
     await expect(service.answer('Kevin')).resolves.toBe('Not in the vault yet.');
     expect(logs).toHaveLength(2);
     index.close();
+  });
+
+  it('rejects incidental FTS matches for unrelated multi-word topics', async () => {
+    const { service, index } = await setup(
+      makeNote('st_a1b2c3', 'Chat renamed the boss Kevin after a failed speedrun attempt.'),
+      makeNote('st_d4e5f6', 'The community remembers the Kevin rename.'),
+    );
+    await expect(service.answer('invisible purple elephant tournament')).resolves.toBe('Not in the vault yet.');
+    await expect(service.answer('the and after')).resolves.toBe('Not in the vault yet.');
+    index.close();
+  });
+
+  it('requires meaningful token relevance and does not send unrelated candidates to the LLM', async () => {
+    const calls: unknown[] = [];
+    const { root, index } = await setup(makeNote('st_XZnxow', 'Manual integration test: chat remembers the silver key after the puzzle run.'));
+    const service = new WhyService({ vaultPath: root, index, llm: { suggestLinks: async () => ({ ids: [] }), answerWhy: async (input) => { calls.push(input); return { answer: 'unsupported', citations: ['st_XZnxow'] }; } } });
+    await expect(service.answer('invisible purple elephant tournament')).resolves.toBe('Not in the vault yet.');
+    expect(calls).toHaveLength(0);
+    await expect(service.answer('silver key')).resolves.toContain('st_XZnxow');
+    expect(calls).toHaveLength(1);
+    index.close();
+  });
+
+  it('reports genuinely contradictory relevant claims but not merely different details', async () => {
+    const contradictory = await setup(
+      makeNote('st_a1b2c3', 'Kevin is the boss.'),
+      makeNote('st_d4e5f6', 'Kevin is not the boss.'),
+    );
+    await expect(contradictory.service.answer('Kevin boss')).resolves.toContain('conflicting evidence');
+    contradictory.index.close();
+    const compatible = await setup(
+      makeNote('st_g7h8i9', 'Kevin is the boss from the failed speedrun.'),
+      makeNote('st_j1k2l3', 'Kevin is the boss remembered by the community.'),
+    );
+    await expect(compatible.service.answer('Kevin boss')).resolves.not.toContain('conflicting evidence');
+    compatible.index.close();
   });
 });
