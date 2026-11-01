@@ -23,10 +23,18 @@
     .node-shape.unconfirmed { stroke-width:1.35; }
     .node-shape.canon { stroke:#fff; stroke-width:2.35; }
     .node-shape.superseded { opacity:.3; stroke:rgba(255,255,255,.28); }
+    .node-shape.done { stroke-dasharray:3 2; opacity:.68; }
+    .node-shape.interrupted { stroke-dasharray:4 2; opacity:.55; }
     .node-group.hovered .node-shape { stroke:var(--ink); stroke-width:2.5; filter:drop-shadow(0 0 7px #a970ff99); }
     .node-group.selected .node-shape { filter:drop-shadow(0 0 9px #9146ff99); stroke:var(--ink); stroke-width:3; }
     .lore-star { fill:#fff7c8; stroke:#fff; stroke-width:.7; filter:drop-shadow(0 0 5px #fff2a6aa); pointer-events:none; }
     .lore-shine { fill:rgba(255,255,255,.30); pointer-events:none; }
+    .loop-orbit { fill:none; stroke:url(#loop-orbit-white); stroke-width:1.05; pointer-events:none; }
+    .loop-orbit.open { stroke-dasharray:24 10; animation:loop-orbit-flow 2.8s linear infinite; }
+    .loop-orbit.done { opacity:.38; }
+    @keyframes loop-orbit-flow { to { stroke-dashoffset:-34; } }
+    .person-constellation-link { stroke:rgba(255,255,255,.62); stroke-width:.8; pointer-events:none; }
+    .person-satellite { fill:url(#gradient-white); stroke:rgba(255,255,255,.72); stroke-width:.75; pointer-events:none; }
     .node-group.dimmed, .edge.dimmed { opacity:.22; }
     .node-group.new-node .node-shape { animation:node-pulse 900ms ease-out 1; }
     @keyframes node-pulse { 0% { opacity:.15; transform:scale(.55); } 55% { opacity:1; transform:scale(1.16); } 100% { opacity:1; transform:scale(1); } }
@@ -65,6 +73,14 @@
     .legend-stone .facet,.legend-lore .facet { fill:none; stroke:#bababa; stroke-width:.9; stroke-linecap:round; stroke-linejoin:round; opacity:.8; }
     .legend-lore { filter:drop-shadow(0 0 5px rgba(255,255,255,.62)); }
     .legend-lore .glint { fill:#ffffff; stroke:none; }
+    .legend-stream .outline { fill:#ffffff; stroke:#ffffff; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+    .legend-stream .facet { fill:none; stroke:#646464; stroke-width:.9; stroke-linecap:round; stroke-linejoin:round; opacity:.9; }
+    .legend-loop .outline { fill:rgba(255,255,255,.035); stroke:#ffffff; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+    .legend-loop .facet,.legend-loop .thread { fill:none; stroke:#ffffff; stroke-width:.9; stroke-linecap:round; stroke-linejoin:round; }
+    .legend-loop .thread { stroke-dasharray:5 2.5; opacity:.9; }
+    .legend-person .core,.legend-person .satellite { fill:rgba(255,255,255,.05); stroke:#ffffff; stroke-width:1.1; stroke-linecap:round; stroke-linejoin:round; }
+    .legend-person .link { stroke:#ffffff; stroke-width:.8; opacity:.8; }
+    .legend-person .facet { fill:none; stroke:#ffffff; stroke-width:.65; stroke-linecap:round; stroke-linejoin:round; opacity:.8; }
     #startup { position:fixed; inset:0; z-index:20; display:grid; place-items:center; overflow:hidden; background:#000000; }
     .startup-grid { position:absolute; inset:0; width:100vw; height:100vh; pointer-events:none; }
     .startup-brand { position:relative; display:flex; align-items:center; justify-content:center; gap:24px; }
@@ -72,21 +88,21 @@
     .startup-logo { display:block; width:230px; height:230px; object-fit:contain; transform:translate(-59px,-35px); }
     .startup-name { color:#ffffff; font:600 clamp(48px,5vw,56px)/1 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.01em; }
     @media (max-width:360px) { .startup-brand { gap:14px; } .startup-logo-frame { width:86px; height:132px; } .startup-logo { transform:translate(-72px,-47px) scale(.88); transform-origin:top left; } .startup-name { font-size:42px; } }
-    @media (prefers-reduced-motion:reduce) { .node-group.new-node .node-shape,.edge.new-edge { animation:none; } .edge,.node-shape { transition:none; } }
+    @media (prefers-reduced-motion:reduce) { .node-group.new-node .node-shape,.edge.new-edge,.loop-orbit.open { animation:none; } .edge,.node-shape { transition:none; } }
   </style>
 </head>
 <body>
   <svg id="graph-canvas" aria-label="Cairn community memory graph" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid meet"></svg>
-  <svg id="graph-grid" aria-hidden="true" preserveAspectRatio="none"><defs><pattern id="graph-grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#151515" stroke-width="1" /></pattern></defs><rect width="100%" height="100%" fill="url(#graph-grid-pattern)" /></svg>
+    <svg id="graph-grid" aria-hidden="true" preserveAspectRatio="none"><defs><pattern id="graph-grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#242424" stroke-width="1" /></pattern></defs><rect width="100%" height="100%" fill="url(#graph-grid-pattern)" /></svg>
   <div id="brand-mark" aria-hidden="true"><img src="/assets/cairn-logo.png" alt=""></div>
   <div id="node-search" role="search"><input id="node-search-input" type="search" autocomplete="off" placeholder="Search stone, lore, ID or title" aria-label="Search graph nodes"><div id="search-suggestions" role="listbox" aria-label="Matching graph nodes"></div></div>
-  <aside id="type-legend" aria-label="Node type legend"><div class="legend-item"><svg class="legend-icon legend-stone" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/></svg><span>Stone</span></div><div class="legend-item"><svg class="legend-icon legend-lore" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/><path class="glint" d="M16 9 17.7 14.3 23 16l-5.3 1.7L16 23l-1.7-5.3L9 16l5.3-1.7Z"/></svg><span>Lore</span></div></aside>
+  <aside id="type-legend" aria-label="Node type legend"><div class="legend-item"><svg class="legend-icon legend-stone" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/></svg><span>Stone</span></div><div class="legend-item"><svg class="legend-icon legend-lore" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/><path class="glint" d="M16 9 17.7 14.3 23 16l-5.3 1.7L16 23l-1.7-5.3L9 16l5.3-1.7Z"/></svg><span>Lore</span></div><div class="legend-item"><svg class="legend-icon legend-stream" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/></svg><span>Stream Session</span></div><div class="legend-item"><svg class="legend-icon legend-loop" viewBox="0 0 32 32" aria-hidden="true"><path class="outline" d="M16 3 25 8 29 18 22 28 10 29 3 20 7 8Z"/><path class="facet" d="M7 8 16 13 25 8M16 13v15M3 20l13-7 13 5M10 29l6-16 6 15"/><ellipse class="thread" cx="16" cy="16" rx="14" ry="5.5" transform="rotate(-22 16 16)"/></svg><span>Promise</span></div><div class="legend-item"><svg class="legend-icon legend-person" viewBox="0 0 32 32" aria-hidden="true"><line class="link" x1="16" y1="16" x2="6" y2="8"/><line class="link" x1="16" y1="16" x2="27" y2="10"/><line class="link" x1="16" y1="16" x2="24" y2="26"/><path class="core" d="M16 8 23 12 24 20 18 25 10 24 7 18 10 11Z"/><path class="facet" d="M10 11 16 15 23 12M16 15v9M7 18l9-3 8 5"/><path class="satellite" d="M6 4 9 6 9 10 6 12 3 10 3 6Z"/><path class="satellite" d="M27 5 30 7 30 11 27 13 24 11 24 7Z"/><path class="satellite" d="M24 22 27 24 27 28 24 30 21 28 21 24Z"/></svg><span>Person</span></div></aside>
   <button id="fit" type="button" aria-label="Fit graph to viewport">Fit graph</button>
   <aside id="card"></aside>
   <div id="tooltip" role="tooltip"></div>
   <div id="demo-indicator" aria-label="Temporary globe demo">DEMO GLOBE — 26+ NODES</div>
   <div id="startup" role="status" aria-label="Loading Cairn">
-    <svg class="startup-grid" aria-hidden="true" preserveAspectRatio="none"><defs><pattern id="startup-grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#151515" stroke-width="1" /></pattern></defs><rect width="100%" height="100%" fill="url(#startup-grid-pattern)" /></svg>
+    <svg class="startup-grid" aria-hidden="true" preserveAspectRatio="none"><defs><pattern id="startup-grid-pattern" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#242424" stroke-width="1" /></pattern></defs><rect width="100%" height="100%" fill="url(#startup-grid-pattern)" /></svg>
     <div class="startup-brand"><span class="startup-logo-frame"><img class="startup-logo" src="/assets/cairn-logo.png" alt="Cairn logo"></span><span class="startup-name">Cairn</span></div>
   </div>
   <script>
@@ -108,6 +124,10 @@
         ['white','#B7C0CD','#FFFFFF']
       ];
       const solidColours = Object.fromEntries(gradients.map(([key,start]) => [key,start]));
+      const loopOrbitGradient = defs.append('linearGradient').attr('id','loop-orbit-white').attr('x1','0%').attr('y1','0%').attr('x2','100%').attr('y2','0%');
+      loopOrbitGradient.append('stop').attr('offset','0%').attr('stop-color','#ffffff').attr('stop-opacity','.22');
+      loopOrbitGradient.append('stop').attr('offset','48%').attr('stop-color','#ffffff').attr('stop-opacity','.98');
+      loopOrbitGradient.append('stop').attr('offset','100%').attr('stop-color','#ffffff').attr('stop-opacity','.28');
       // Every stone is intentionally a visible colour-to-white sphere: a white
       // light source at upper-left, the supplied pale colour in the middle,
       // and the saturated base colour toward the lower rim.
@@ -122,9 +142,10 @@
       function validGraph(graph) { return graph && graph.version === 1 && Number.isInteger(graph.revision) && Array.isArray(graph.nodes) && Array.isArray(graph.edges) && graph.nodes.every(n => n && typeof n.id === 'string' && typeof n.title === 'string' && typeof n.status === 'string') && graph.edges.every(e => e && typeof e.id === 'string' && typeof e.source === 'string' && typeof e.target === 'string'); }
       function visibleGraph(graph) { const nodes = [...graph.nodes].sort((a,b) => b.created.localeCompare(a.created) || a.id.localeCompare(b.id)).slice(0,150), ids = new Set(nodes.map(n => n.id)); return { nodes, edges: graph.edges.filter(e => ids.has(e.source) && ids.has(e.target)).sort((a,b) => a.id.localeCompare(b.id)) }; }
       function hash(value) { let result = 0; for (const character of value) result = ((result << 5) - result + character.charCodeAt(0)) | 0; return Math.abs(result); }
-      function gradientKey(node) { return bluePalettePreview ? 'blue' : gradients[hash(`${node.type}:${node.id}`) % gradients.length][0]; }
+      const stoneGradients = gradients.filter(([key]) => key !== 'white');
+      function gradientKey(node) { return bluePalettePreview ? 'blue' : (node.type === 'stream' ? 'white' : stoneGradients[hash(`${node.type}:${node.id}`) % stoneGradients.length][0]); }
       function shortLabel(title) { const words=String(title||'').trim().replace(/[–—:|()[\]{}]+/gu,' ').split(/\s+/u).filter(Boolean), filler=new Set(['the','a','an','community','thing','memory','chat','this','that','is','was','are','remember','after','as','failed','speedrun','attempt','meme']), meaningful=words.filter(word=>!filler.has(word.toLocaleLowerCase())), selected=(meaningful.length>=2?meaningful:words).slice(0,2); return selected.length ? selected.map(word=>{const shortened=word.length>24?`${word.slice(0,23)}…`:word;return shortened.charAt(0).toLocaleUpperCase()+shortened.slice(1);}).join(' ') : 'Memory'; }
-      function styleFor(node) { return { shape: node.type === 'stone' || node.type === 'lore' ? 'circle' : 'square', fillMode: bluePalettePreview ? 'gradient' : (node.type === 'lore' ? 'solid' : 'gradient'), outlineStyle: node.status === 'unconfirmed' ? 'dashed' : 'solid', opacity: node.status === 'superseded' ? .3 : 1 }; }
+      function styleFor(node) { return { shape: node.type === 'stone' || node.type === 'lore' || node.type === 'stream' || node.type === 'loop' || node.type === 'person' ? 'circle' : 'square', fillMode: bluePalettePreview ? 'gradient' : (node.type === 'lore' ? 'solid' : 'gradient'), outlineStyle: node.status === 'unconfirmed' ? 'dashed' : 'solid', opacity: node.status === 'superseded' ? .3 : 1 }; }
       function point(value, fallback) { return value && typeof value === 'object' && Number.isFinite(value.x) && Number.isFinite(value.y) ? value : (layoutNodes.get(value) || fallback); }
       function endpointId(value) { return typeof value === 'string' ? value : value && typeof value.id === 'string' ? value.id : ''; }
       function nodeBoundaryRadius(id) { const node=layoutNodes.get(id); if(!node)return 14; return node.type==='stone'?(node.status==='canon'?14:13):14; }
@@ -176,13 +197,19 @@
           el.selectAll('circle.node-shape,rect.node-shape,polygon.node-shape').remove();
           const shape = visual.shape==='circle'
             ? el.append('circle').attr('r',radius)
-            : el.append('rect').attr('width',25).attr('height',25).attr('x',-12.5).attr('y',-12.5);
+            : visual.shape==='diamond'
+                ? el.append('polygon').attr('points','0,-16 16,0 0,16 -16,0')
+                : el.append('rect').attr('width',25).attr('height',25).attr('x',-12.5).attr('y',-12.5);
           // The class must be assigned to the new SVG element before styling it.
           shape.attr('class',`node-shape ${d.status}`)
             .style('fill',visual.fillMode==='solid'?(solidColours[key]||'#7F3FE0'):`url(#gradient-${key})`)
             .style('stroke-dasharray',null).style('opacity',visual.opacity);
           el.selectAll('circle.lore-shine').data(d.type==='lore'?[d]:[]).join('circle').attr('class','lore-shine').attr('cx',-4).attr('cy',-4).attr('r',3);
           el.selectAll('path.lore-star').data(d.type==='lore'?[d]:[]).join('path').attr('class','lore-star').attr('d','M0,-8 L2.2,-2.2 L8,0 L2.2,2.2 L0,8 L-2.2,2.2 L-8,0 L-2.2,-2.2 Z');
+          el.selectAll('ellipse.loop-orbit').data(d.type==='loop'?[d]:[]).join('ellipse').attr('class',entry=>`loop-orbit ${entry.status}`).attr('cx',0).attr('cy',0).attr('rx',18).attr('ry',7).attr('transform','rotate(-22)');
+          const satellites = d.type==='person' ? [{ x:-17, y:-11 }, { x:17, y:-10 }, { x:14, y:16 }] : [];
+          el.selectAll('line.person-constellation-link').data(satellites).join('line').attr('class','person-constellation-link').attr('x1',0).attr('y1',0).attr('x2',entry=>entry.x).attr('y2',entry=>entry.y);
+          el.selectAll('circle.person-satellite').data(satellites).join('circle').attr('class','person-satellite').attr('cx',entry=>entry.x).attr('cy',entry=>entry.y).attr('r',3.5);
           el.selectAll('text.label').data([d]).join('text').attr('class','label').attr('x',0).attr('y',radius+16).text(shortLabel(d.title));
         });
         renderedNodes=merged;
@@ -203,8 +230,14 @@
         const relationHtml=related.length
           ? `<div class="related">${related.map(entry=>`<button type="button" data-related="${escapeHtml(entry.id)}" title="${escapeHtml(entry.title)}">${escapeHtml(shortLabel(entry.title))} · ${escapeHtml(entry.status)}</button>`).join('')}</div>`
           : '<div class="meta">No linked memories yet.</div>';
+        const identityHtml=node.type==='person'?'':`<div class="meta">${escapeHtml(node.id)}${node.author?` · ${escapeHtml(node.author)}`:''}${node.created?` · ${escapeHtml(node.created)}`:''}</div>`;
+        const typeDetails=node.type==='person'
+          ? `<div class="section-title">Contributions</div><div class="meta">${Number.isInteger(node.contributedStoneCount)?`${node.contributedStoneCount} contributed stone${node.contributedStoneCount===1?'':'s'}.`:'Contribution count unavailable.'}</div>`
+          : node.type==='stream'
+            ? `<div class="section-title">Stream session</div><div class="meta">Started: ${escapeHtml(node.created||'not recorded')}${node.ended?`<br>Ended: ${escapeHtml(node.ended)}`:''}${node.recoveryObservedAt?`<br>Recovery observed: ${escapeHtml(node.recoveryObservedAt)}`:''}</div>`
+            : '';
         card.style.display='block';
-        card.innerHTML=`<button class="close" type="button" aria-label="Close lore inspector">×</button><h2>${escapeHtml(node.title)}</h2><div class="meta">Display label: ${escapeHtml(shortLabel(node.title))}</div><p>Status: ${escapeHtml(node.status)}</p><div class="meta">${escapeHtml(node.id)} · ${escapeHtml(node.author||'Author unavailable')} · ${escapeHtml(node.created||'Creation time unavailable')}</div><div class="section-title">Complete memory</div><p class="body">${escapeHtml(node.body||'Full memory text is not available in the graph snapshot.')}</p><div class="section-title">Source evidence</div>${node.source?.length?`<div class="meta">${node.source.map(source=>`Message: ${escapeHtml(source.msg_id)}${source.ts?` · ${escapeHtml(source.ts)}`:''}${source.author?` · ${escapeHtml(source.author)}`:''}`).join('<br>')}</div>`:'<div class="meta">No source evidence recorded.</div>'}<div class="section-title">History</div>${historyHtml}${node.supersedes?`<div class="meta">Supersedes: ${escapeHtml(node.supersedes)}</div>`:''}<div class="section-title">Relationships</div>${relationHtml}`;
+        card.innerHTML=`<button class="close" type="button" aria-label="Close inspector">×</button><h2>${escapeHtml(node.title)}</h2><div class="meta">Display label: ${escapeHtml(shortLabel(node.title))}</div><p>Status: ${escapeHtml(node.status)}</p>${identityHtml}${typeDetails}<div class="section-title">Complete memory</div><p class="body">${escapeHtml(node.body||'Full memory text is not available in the graph snapshot.')}</p><div class="section-title">Source evidence</div>${node.source?.length?`<div class="meta">${node.source.map(source=>`Message: ${escapeHtml(source.msg_id)}${source.ts?` · ${escapeHtml(source.ts)}`:''}${source.author?` · ${escapeHtml(source.author)}`:''}`).join('<br>')}</div>`:'<div class="meta">No source evidence recorded.</div>'}<div class="section-title">History</div>${historyHtml}${node.supersedes?`<div class="meta">Supersedes: ${escapeHtml(node.supersedes)}</div>`:''}<div class="section-title">Relationships</div>${relationHtml}`;
         card.querySelector('.close')?.addEventListener('click',()=>selectNode(null));
         card.querySelectorAll('[data-related]').forEach(button=>button.addEventListener('click',()=>selectNode(button.getAttribute('data-related'))));
       }

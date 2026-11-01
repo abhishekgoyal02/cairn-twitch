@@ -4,8 +4,10 @@ import type { NormalizedChatMessage } from './types.js';
 import { makeStoneTitle } from '../vault/filename.js';
 import { SqliteIndex, type IndexedNote } from '../index/sqlite-index.js';
 import { StoneVaultWriter } from '../vault/writer.js';
+import { PersonNoteRepository } from '../vault/person-repository.js';
 import type { StoneNote, StoneSource, LoreNote } from '../vault/stone-schema.js';
 import type { LlmAdapter } from '../intelligence/llm.js';
+import type { ActiveStreamProvider } from './stream-context.js';
 
 export interface StoneServiceOptions {
   vaultPath: string;
@@ -15,6 +17,8 @@ export interface StoneServiceOptions {
   idFactory?: () => string;
   log?: (message: string) => void;
   llm?: LlmAdapter;
+  people?: PersonNoteRepository;
+  streamContext?: ActiveStreamProvider;
 }
 
 export class StoneService {
@@ -22,6 +26,7 @@ export class StoneService {
   private readonly index: SqliteIndex;
   private readonly now: () => number;
   private readonly idFactory: () => string;
+  private readonly people: PersonNoteRepository;
   private readonly cooldowns = new Map<string, number>();
 
   constructor(private readonly options: StoneServiceOptions) {
@@ -32,6 +37,7 @@ export class StoneService {
     );
     this.now = options.now ?? Date.now;
     this.idFactory = options.idFactory ?? (() => `st_${randomBytes(4).toString('base64url').replace(/[^A-Za-z0-9]/gu, '').slice(0, 6).padEnd(6, '0')}`);
+    this.people = options.people ?? new PersonNoteRepository(options.vaultPath, this.writer);
   }
 
   public async create(message: NormalizedChatMessage, body: string): Promise<string> {
@@ -66,6 +72,9 @@ export class StoneService {
       sources.push(parentSource);
     }
 
+    let streamId: string | undefined;
+    try { streamId = await this.options.streamContext?.streamIdFor(message); }
+    catch { this.options.log?.('Stone stream association unavailable; stone will remain unassociated.'); }
     const note: StoneNote = {
       frontmatter: {
         id,
@@ -76,6 +85,7 @@ export class StoneService {
         author: message.displayName,
         source: sources,
         history: [{ type: 'created', at: created }],
+        ...(streamId ? { streamId } : {}),
       },
       body: text,
     };
@@ -89,6 +99,17 @@ export class StoneService {
     }
 
     this.cooldowns.set(viewerKey, current + 30_000);
+    if (message.senderId?.trim()) {
+      try {
+        await this.people.addContribution(message.senderId, message.displayName, note.frontmatter.id);
+      } catch {
+        // A person record is a recoverable secondary index of an already
+        // durable stone. Never misreport the stone as unsaved or roll it back.
+        this.options.log?.(`Stone ${id} saved; contributor synchronization failed.`);
+      }
+    } else {
+      this.options.log?.(`Stone ${id} saved; contributor synchronization skipped because trusted sender identity was unavailable.`);
+    }
     try {
       this.index.upsert(note, receipt.relativePath);
     } catch {

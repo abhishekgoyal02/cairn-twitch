@@ -25,13 +25,17 @@ export async function reindexVault(vaultPath: string): Promise<ReindexSummary> {
         const note = record.note;
         if (ids.has(note.frontmatter.id)) throw new Error(`duplicate note id: ${note.frontmatter.id}`);
         ids.add(note.frontmatter.id);
+        const indexed = note.frontmatter.type === 'person'
+          ? { title: note.frontmatter.displayName, status: 'active', author: note.frontmatter.displayName, created: '1970-01-01T00:00:00.000Z' }
+          : note.frontmatter.type === 'loop'
+            ? { title: note.frontmatter.title, status: note.frontmatter.status, author: note.frontmatter.owner, created: note.frontmatter.created }
+            : note.frontmatter.type === 'stream'
+              ? { title: `Stream ${note.frontmatter.streamId}`, status: note.frontmatter.status, author: note.frontmatter.broadcasterId, created: note.frontmatter.started }
+            : { title: note.frontmatter.title, status: note.frontmatter.status, author: note.frontmatter.author, created: note.frontmatter.created };
         valid.push({
           id: note.frontmatter.id,
           type: note.frontmatter.type,
-          title: note.frontmatter.title,
-          status: note.frontmatter.status,
-          author: note.frontmatter.author,
-          created: note.frontmatter.created,
+          ...indexed,
           relativePath: record.relativePath,
           body: note.body,
         });

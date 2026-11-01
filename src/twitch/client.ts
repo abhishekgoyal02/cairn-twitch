@@ -11,6 +11,8 @@ export class TwitchIdentityError extends Error {
 }
 
 const tokenManagers = new WeakMap<ChatClient, TwitchTokenManager>();
+const authProviders = new WeakMap<ChatClient, RefreshingAuthProvider>();
+const authenticatedUserIds = new WeakMap<ChatClient, string>();
 
 export async function createTwitchClient(
   config: AppConfig,
@@ -55,6 +57,8 @@ export async function createTwitchClient(
     rejoinChannelsOnReconnect: true,
   });
   tokenManagers.set(chatClient, manager);
+  authProviders.set(chatClient, authProvider);
+  authenticatedUserIds.set(chatClient, userId);
 
   chatClient.onMessage(async (channel, user, text, message: ChatMessage) => {
     const startsWithCommand = text.trimStart().startsWith('!');
@@ -99,6 +103,12 @@ export async function createTwitchClient(
 
 export async function flushTwitchTokenPersistence(client: ChatClient | undefined): Promise<void> {
   await (client ? tokenManagers.get(client)?.flush() : undefined);
+}
+
+/** Shared authenticated identity for optional Twitch capabilities such as EventSub. */
+export function getTwitchAuthContext(client: ChatClient): { authProvider: RefreshingAuthProvider; userId: string } | undefined {
+  const authProvider = authProviders.get(client); const userId = authenticatedUserIds.get(client);
+  return authProvider && userId ? { authProvider, userId } : undefined;
 }
 
 export function createRefreshingAuthProvider(config: AppConfig, store: { save(token: StoredTwitchToken): Promise<void> }): RefreshingAuthProvider {

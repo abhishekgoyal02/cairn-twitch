@@ -57,6 +57,8 @@ describe('GraphServer', () => {
       expect(overlay).toContain('id="brand-mark"');
       expect(overlay).toContain('id="node-search-input"');
       expect(overlay).toContain('id="type-legend"');
+      expect(overlay).toContain('legend-person');
+      expect(overlay).toContain('legend-loop');
       const d3Response = await fetch(`${base}/d3.bundle.js`);
       expect(d3Response.status).toBe(200);
       expect(d3Response.headers.get('content-type')).toContain('javascript');
@@ -116,6 +118,32 @@ describe('GraphServer', () => {
       await graph.stop();
       index.close();
       await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes person, loop, and stream nodes with only valid Markdown relationships', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cairn-server-types-'));
+    const personId = `pe_${'a'.repeat(64)}`, streamId = `sr_${'b'.repeat(64)}`;
+    await Promise.all(['stones', 'people', 'loops', 'streams'].map((directory) => fs.mkdir(path.join(root, directory), { recursive: true })));
+    await fs.writeFile(path.join(root, 'stones', 'stone.md'), `---\nid: st_a1b2c3\ntype: stone\ntitle: Evidence\nstatus: unconfirmed\ncreated: 2026-11-01T10:00:00.000Z\nauthor: Viewer\nsource:\n  - msg_id: msg-1\n    ts: 2026-11-01T10:00:00.000Z\n---\nEvidence.\n`);
+    await fs.writeFile(path.join(root, 'people', `${personId}.md`), `---\nid: ${personId}\ntype: person\ndisplayName: Viewer\nstoneIds:\n  - st_a1b2c3\n---\n[[st_a1b2c3]]\n`);
+    await fs.writeFile(path.join(root, 'loops', 'loop.md'), `---\nid: lp_a1b2c3\ntype: loop\ntitle: Promise\nstatus: open\ncreated: 2026-11-01T10:01:00.000Z\nowner: Moderator\n---\n\n`);
+    await fs.writeFile(path.join(root, 'streams', 'stream.md'), `---\nid: ${streamId}\ntype: stream\nstreamId: stream-one\nbroadcasterId: broadcaster-one\nstatus: completed\nstarted: 2026-11-01T10:00:00.000Z\nstoneIds:\n  - st_a1b2c3\nopenLoopIds:\n  - lp_a1b2c3\n---\n## Stones added\n- [[st_a1b2c3]]\n\n## Open loops at stream end\n- [[lp_a1b2c3]]\n`);
+    const index = new SqliteIndex(path.join(root, '.cairn', 'index.sqlite'), root);
+    const graph = new GraphService({ vaultPath: root, index });
+    const server = new GraphServer({ graph, port: 0 });
+    let socket: WebSocket | undefined;
+    try {
+      await graph.start(); await server.start();
+      const { host, port } = server.getAddress();
+      socket = new WebSocket(`ws://${host}:${port}/ws`);
+      const message = await new Promise<any>((resolve, reject) => { socket!.once('message', (data) => resolve(JSON.parse(data.toString()))); socket!.once('error', reject); });
+      expect(message.graph.nodes.map((node: { type: string }) => node.type).sort()).toEqual(['loop', 'person', 'stone', 'stream']);
+      expect(message.graph.edges.map((edge: { id: string }) => edge.id)).toEqual([`${personId}->st_a1b2c3:wikilink`, `${streamId}->lp_a1b2c3:wikilink`, `${streamId}->st_a1b2c3:wikilink`]);
+      expect(JSON.stringify(message)).not.toContain('broadcaster-one');
+      expect(JSON.stringify(message)).not.toContain('stream-one');
+    } finally {
+      socket?.close(); await server.stop(); await graph.stop(); index.close(); await fs.rm(root, { recursive: true, force: true });
     }
   });
 

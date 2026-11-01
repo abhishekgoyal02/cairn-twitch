@@ -58,12 +58,18 @@ export class GraphService {
     // created while a missing directory is being materialized can be missed.
     await fs.mkdir(path.join(this.vaultPath, 'stones'), { recursive: true });
     await fs.mkdir(path.join(this.vaultPath, 'lore'), { recursive: true });
-    // Watch every active Markdown content directory. The scanner and index
-    // already treat stones and lore as authoritative sources; watching both
-    // keeps Obsidian edits live without duplicating watcher instances.
+    await fs.mkdir(path.join(this.vaultPath, 'people'), { recursive: true });
+    await fs.mkdir(path.join(this.vaultPath, 'loops'), { recursive: true });
+    await fs.mkdir(path.join(this.vaultPath, 'streams'), { recursive: true });
+    // Watch every active Markdown content directory. Reconciliation remains
+    // the single source of watcher updates, including note types that are not
+    // yet projected into the graph UI.
     this.watcher = chokidar.watch([
       path.join(this.vaultPath, 'stones'),
       path.join(this.vaultPath, 'lore'),
+      path.join(this.vaultPath, 'people'),
+      path.join(this.vaultPath, 'loops'),
+      path.join(this.vaultPath, 'streams'),
     ], {
       ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 },
@@ -209,9 +215,22 @@ export class GraphService {
 }
 
 function toIndexedNote(record: VaultNoteRecord): IndexedNote {
+  const frontmatter = record.note.frontmatter;
+  if (frontmatter.type === 'person') return {
+    id: frontmatter.id, type: frontmatter.type, title: frontmatter.displayName, status: 'active', author: frontmatter.displayName,
+    created: '1970-01-01T00:00:00.000Z', relativePath: record.relativePath, body: record.note.body,
+  };
+  if (frontmatter.type === 'loop') return {
+    id: frontmatter.id, type: frontmatter.type, title: frontmatter.title, status: frontmatter.status, author: frontmatter.owner,
+    created: frontmatter.created, relativePath: record.relativePath, body: record.note.body,
+  };
+  if (frontmatter.type === 'stream') return {
+    id: frontmatter.id, type: frontmatter.type, title: `Stream ${frontmatter.streamId}`, status: frontmatter.status, author: frontmatter.broadcasterId,
+    created: frontmatter.started, relativePath: record.relativePath, body: record.note.body,
+  };
   return {
-    id: record.note.frontmatter.id, type: record.note.frontmatter.type, title: record.note.frontmatter.title,
-    status: record.note.frontmatter.status, author: record.note.frontmatter.author, created: record.note.frontmatter.created,
+    id: frontmatter.id, type: frontmatter.type, title: frontmatter.title,
+    status: frontmatter.status, author: frontmatter.author, created: frontmatter.created,
     relativePath: record.relativePath, body: record.note.body,
   };
 }

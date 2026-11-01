@@ -69,6 +69,32 @@ Ask the saved vault a question with:
 
 `!why` searches the SQLite FTS5 view, then re-reads and validates the matching Markdown notes before answering. Citations use the immutable stone ID, not the filename. Canon notes are preferred, superseded notes are excluded, and unconfirmed notes are labelled explicitly. If no valid evidence matches, Cairn replies `Not in the vault yet.`. SQLite can be rebuilt from Markdown at any time with `npm run reindex`.
 
+Community onboarding commands are public:
+
+```text
+!recap
+!mystones
+```
+
+`!recap` is deterministic and LLM-free. It re-reads active Markdown and gives a concise briefing from canon lore and any canon stone explicitly linked from that lore. It has a 10-second per-channel and 30-second per-viewer cooldown. `!mystones` returns only the requesting viewer's active stone count and three newest contributions. Person records use a stable hash of the trusted Twitch user ID as their filename; the raw Twitch ID is never written to Markdown, and records contain only a public display name plus stone references. Attribution is reliable for stones created after this synchronization was introduced; Cairn does not guess historical ownership from display names.
+
+Moderators and the broadcaster can track public stream commitments with:
+
+```text
+!promise <text>
+!done <loop_id>
+```
+
+`!promise` creates an atomically written Markdown loop under `cairn-vault/loops/` with a stable `lp_` ID and `open` status. `!done` changes only an existing open loop to `done`; it preserves the original title, owner, source evidence, body, and history, then appends Cairn's real completion event. Completed loops are retained and remain rebuildable through the vault/index pipeline.
+
+## Stream lifecycle tracking
+
+Cairn uses Twitch EventSub WebSockets for `stream.online` and `stream.offline`, with the configured `TWITCH_CHANNEL` resolved through Twitch to the broadcaster ID at runtime. Both subscription types require no additional OAuth scope; WebSocket EventSub still uses Cairn's existing refreshed user token. Stream tracking is optional: if EventSub cannot subscribe or reconnect, chat commands and vault persistence continue normally and the process logs a sanitized degraded lifecycle diagnostic.
+
+Each trusted stream session is stored in `cairn-vault/streams/` as a Markdown note with a deterministic ID derived from Twitch's stream ID. New stones receive `streamId` only when their trusted chat timestamp is within Cairn's active session. At a verified offline notification, Cairn records the real session stones and loops still open at that moment. Twitch's `stream.offline` EventSub payload does not include an offline timestamp, so Cairn leaves `ended` absent rather than inventing one. A normal completed session is distinct from an `interrupted` recovery record, which records only when Cairn later observed an unresolved session was no longer live.
+
+Automated tests use mocked stream events and do not verify Twitch EventSub credentials or a real broadcast. For a manual test, start Cairn and confirm separate chat and `Stream lifecycle diagnostics: outcome=ready` messages; start a controlled broadcast, create a clearly labelled test `!stone` and optional open `!promise`, then stop the broadcast. Confirm one Markdown stream record contains the real stone/link and open-loop link, run `npm run lint:vault`, inspect it in Obsidian, and verify the existing overlay remains operational. Do not delete any resulting production test record automatically.
+
 ## Phase 4 graph and OBS overlay
 
 Phase 4 is split into two layers. Part A watches the Markdown vault, validates notes, rebuilds the existing SQLite view, resolves wikilinks, and projects a deterministic graph. Part B exposes that projection locally and renders it in a transparent browser overlay. The vault is still the only source of truth; SQLite, the graph, and D3 are disposable views.
@@ -101,6 +127,12 @@ The browser rejects malformed or stale revisions and fetches a fresh snapshot af
 To use OBS, add a Browser Source pointing at `http://127.0.0.1:8787/overlay.html`, enable a transparent background, and size it to the stream canvas. The overlay uses concise labels, hover tooltips, and a persistent bottom-right Lore Inspector with complete available body, source evidence, real lifecycle events, and related-note buttons. At 1–25 active notes it uses the normal force graph and shows real edges; at 26+ active notes it switches every active note—including disconnected notes—to the rotating Fibonacci globe and hides edges until a node is selected or dragged. Browser/OBS rendering is a manual check; automated tests cover the pure view-model, protocol validation, keyed identity, cap, edge filtering, and globe math. All Cairn data and services remain local.
 
 For a temporary isolated globe demonstration, run `npm run demo:globe` and open `http://127.0.0.1:8788/overlay.html?demo=globe`. It creates 26 valid linked Markdown notes under the OS temporary directory, links each node to two real neighbors (52 real wikilink edges), verifies the result through the normal scanner/index/graph/WebSocket path, and removes the fixture when the process is stopped with Ctrl+C. It never writes to `cairn-vault/`.
+
+## Offline full demo
+
+Run `npm run demo` to launch a complete offline Cairn demonstration at `http://127.0.0.1:8789/overlay.html`. It creates a fresh vault under the operating-system temporary directory—not `cairn-vault/`—then replays deterministic scripted chat through the normal `MessageProcessor`, Markdown services, SQLite index, graph watcher, WebSocket server, and overlay. No Twitch account, EventSub subscription, credentials, or LLM provider is used.
+
+The replay demonstrates seeded canon history, `!stone` (including duplicate-event handling), a grounded and an unknown `!why`, `!canon`, `!correct`, `!promise`, `!done`, `!mystones`, `!recap`, Person records, completed/open Loops, and a completed Stream record. The demo verifies vault lint and a Markdown-to-SQLite rebuild before it reports ready. Press `Ctrl+C` to stop the local server and remove the temporary demo vault. For a non-interactive self-check that cleans up immediately, run `npm run demo -- --verify`.
 
 Index rebuild and graph rebuild are separate but deterministic: `npm run reindex` reconstructs SQLite from validated Markdown, while the graph service re-scans the same Markdown set and projects it in memory. Deleting `.cairn/index.sqlite` cannot delete notes or graph identity.
 

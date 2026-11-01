@@ -2,7 +2,9 @@ import type { GraphNode, GraphSnapshot } from '../graph/types.js';
 import type { LoreCardModel, NodeDetailModel, NodeTooltipModel, NodeVisualStyle, ReconciledGraph, VisibleGraph } from './types.js';
 
 /** Stable base colours for memory stones. Each is lit toward white in the SVG. */
-export const NODE_GRADIENTS = ['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown', 'white'] as const;
+/** White is intentionally reserved for Stream Session nodes. */
+export const NODE_GRADIENTS = ['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown'] as const;
+export type NodeGradient = (typeof NODE_GRADIENTS)[number] | 'white';
 
 function stableHash(value: string): number {
   let hash = 0;
@@ -10,7 +12,8 @@ function stableHash(value: string): number {
   return Math.abs(hash);
 }
 
-export function gradientKeyForNode(node: Pick<GraphNode, 'type'> & { id?: string }): (typeof NODE_GRADIENTS)[number] {
+export function gradientKeyForNode(node: Pick<GraphNode, 'type'> & { id?: string }): NodeGradient {
+  if (node.type === 'stream') return 'white';
   return NODE_GRADIENTS[stableHash(`${node.type}:${node.id ?? ''}`) % NODE_GRADIENTS.length];
 }
 
@@ -31,7 +34,7 @@ export function nodeLabelOffsetY(radius: number): number { return radius + 16; }
 
 export function nodeVisualStyle(node: Pick<GraphNode, 'type' | 'status'>): NodeVisualStyle {
   return {
-    shape: node.type === 'stone' || node.type === 'lore' ? 'circle' : 'square',
+    shape: node.type === 'stone' || node.type === 'lore' || node.type === 'stream' || node.type === 'loop' || node.type === 'person' ? 'circle' : 'square',
     outline: '#9146ff',
     // Keep the overlay clean and readable: status is conveyed by solid stroke
     // weight/opacity rather than a dotted boundary around every new stone.
@@ -48,10 +51,10 @@ export function createNodeTooltipModel(node: Pick<GraphNode, 'title' | 'status' 
 }
 
 export function createNodeDetailModel(
-  node: Pick<GraphNode, 'id' | 'title' | 'status' | 'author' | 'created' | 'body' | 'source' | 'history' | 'supersedes'>,
+  node: Pick<GraphNode, 'id' | 'title' | 'status' | 'author' | 'created' | 'body' | 'source' | 'history' | 'supersedes' | 'contributedStoneCount' | 'ended' | 'recoveryObservedAt'>,
   related: Array<{ id: string; title: string }>,
 ): NodeDetailModel {
-  return { ...createNodeTooltipModel(node), id: node.id, body: node.body, created: node.created, source: node.source, history: node.history, supersedes: node.supersedes, related };
+  return { ...createNodeTooltipModel(node), id: node.id, body: node.body, created: node.created, source: node.source, history: node.history, supersedes: node.supersedes, contributedStoneCount: node.contributedStoneCount, ended: node.ended, recoveryObservedAt: node.recoveryObservedAt, related };
 }
 
 export function selectVisibleGraph(snapshot: GraphSnapshot, limit = 150): VisibleGraph {

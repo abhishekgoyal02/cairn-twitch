@@ -1,7 +1,7 @@
 import type { GraphEdge, GraphNode, GraphSnapshot } from '../graph/types.js';
 import type { NoteHistoryEvent } from '../vault/stone-schema.js';
 
-export type NodeShape = 'circle' | 'square';
+export type NodeShape = 'circle' | 'square' | 'diamond';
 export type OutlineStyle = 'solid' | 'dashed';
 export type NodeFillMode = 'gradient' | 'solid';
 
@@ -28,6 +28,9 @@ export interface NodeDetailModel extends NodeTooltipModel {
   source?: Array<{ msg_id: string; ts?: string; author?: string }>;
   history?: NoteHistoryEvent[];
   supersedes?: string;
+  contributedStoneCount?: number;
+  ended?: string;
+  recoveryObservedAt?: string;
   related: Array<{ id: string; title: string }>;
 }
 

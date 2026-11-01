@@ -52,6 +52,13 @@ export class SqliteIndex {
   }
 
   public upsert(note: VaultNote, relativePath: string): void {
+    const metadata = note.frontmatter.type === 'person'
+      ? { title: note.frontmatter.displayName, status: 'active', author: note.frontmatter.displayName, created: '1970-01-01T00:00:00.000Z' }
+      : note.frontmatter.type === 'loop'
+        ? { title: note.frontmatter.title, status: note.frontmatter.status, author: note.frontmatter.owner, created: note.frontmatter.created }
+        : note.frontmatter.type === 'stream'
+          ? { title: `Stream ${note.frontmatter.streamId}`, status: note.frontmatter.status, author: note.frontmatter.broadcasterId, created: note.frontmatter.started }
+        : { title: note.frontmatter.title, status: note.frontmatter.status, author: note.frontmatter.author, created: note.frontmatter.created };
     this.withTransaction(() => {
       this.db.prepare('DELETE FROM notes_fts WHERE id = ?').run(note.frontmatter.id);
       this.db.prepare(`
@@ -68,18 +75,18 @@ export class SqliteIndex {
       `).run(
         note.frontmatter.id,
         note.frontmatter.type,
-        note.frontmatter.title,
-        note.frontmatter.status,
-        note.frontmatter.author,
-        note.frontmatter.created,
+        metadata.title,
+        metadata.status,
+        metadata.author,
+        metadata.created,
         relativePath,
         note.body,
       );
       this.db.prepare('INSERT INTO notes_fts (id, title, body, author) VALUES (?, ?, ?, ?)').run(
         note.frontmatter.id,
-        note.frontmatter.title,
+        metadata.title,
         note.body,
-        note.frontmatter.author,
+        metadata.author,
       );
     });
   }

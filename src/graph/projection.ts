@@ -1,26 +1,15 @@
 import type { GraphDiagnostic, GraphNode, GraphSnapshot, VaultNoteRecord } from './types.js';
 import { resolveWikilinks } from './links.js';
+import type { LoopNote, LoreNote, PersonNote, StoneNote, StreamNote } from '../vault/stone-schema.js';
 
 export type GraphProjector = (notes: VaultNoteRecord[], revision: number, diagnostics?: GraphDiagnostic[]) => GraphSnapshot;
 
 export const projectGraph: GraphProjector = (notes, revision, diagnostics = []): GraphSnapshot => {
-  const nodes: GraphNode[] = notes
-    .map(({ relativePath, note }) => ({
-      id: note.frontmatter.id,
-      type: note.frontmatter.type,
-      title: note.frontmatter.title,
-      status: note.frontmatter.status,
-      relativePath,
-      path: relativePath,
-      created: note.frontmatter.created,
-      author: note.frontmatter.author,
-      body: note.body,
-      source: note.frontmatter.type === 'stone' ? note.frontmatter.source.map((source) => ({ ...source })) : undefined,
-      history: note.frontmatter.history?.map((event) => ({ ...event })),
-      supersedes: note.frontmatter.type === 'stone' ? note.frontmatter.supersedes : undefined,
-    }))
+  const projectableNotes = notes as Array<VaultNoteRecord & { note: StoneNote | LoreNote | PersonNote | LoopNote | StreamNote }>;
+  const nodes: GraphNode[] = projectableNotes
+    .map(({ relativePath, note }) => toGraphNode(relativePath, note))
     .sort((left, right) => left.id.localeCompare(right.id));
-  const links = resolveWikilinks(notes);
+  const links = resolveWikilinks(projectableNotes);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = links.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
   return {
@@ -35,3 +24,14 @@ export const projectGraph: GraphProjector = (notes, revision, diagnostics = []):
     ),
   };
 };
+
+function toGraphNode(relativePath: string, note: StoneNote | LoreNote | PersonNote | LoopNote | StreamNote): GraphNode {
+  const base = { id: note.frontmatter.id, type: note.frontmatter.type, relativePath, path: relativePath, body: note.body };
+  switch (note.frontmatter.type) {
+    case 'stone': return { ...base, title: note.frontmatter.title, status: note.frontmatter.status, created: note.frontmatter.created, author: note.frontmatter.author, source: note.frontmatter.source.map((source) => ({ ...source })), history: note.frontmatter.history?.map((event) => ({ ...event })), supersedes: note.frontmatter.supersedes };
+    case 'lore': return { ...base, title: note.frontmatter.title, status: note.frontmatter.status, created: note.frontmatter.created, author: note.frontmatter.author, history: note.frontmatter.history?.map((event) => ({ ...event })) };
+    case 'person': return { ...base, title: note.frontmatter.displayName, status: 'active', created: '', author: '', contributedStoneCount: note.frontmatter.stoneIds.length };
+    case 'loop': return { ...base, title: note.frontmatter.title, status: note.frontmatter.status, created: note.frontmatter.created, author: note.frontmatter.owner, source: note.frontmatter.source?.map((source) => ({ ...source })), history: note.frontmatter.history?.map((event) => ({ ...event })) };
+    case 'stream': return { ...base, title: 'Stream session', status: note.frontmatter.status, created: note.frontmatter.started, author: '', ended: note.frontmatter.ended, recoveryObservedAt: note.frontmatter.recoveryObservedAt };
+  }
+}

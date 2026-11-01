@@ -7,6 +7,7 @@ import { SqliteIndex } from '../src/index/sqlite-index.js';
 import { StoneVaultWriter } from '../src/vault/writer.js';
 import type { NormalizedChatMessage } from '../src/chat/types.js';
 import type { LlmAdapter } from '../src/intelligence/llm.js';
+import { PersonNoteRepository } from '../src/vault/person-repository.js';
 
 const roots: string[] = [];
 const makeRoot = async (): Promise<string> => {
@@ -135,6 +136,29 @@ describe('StoneService', () => {
     const service = new StoneService({ vaultPath: root, writer: new StoneVaultWriter(root), index, idFactory: () => 'st_a1b2c3' });
     await expect(service.create(viewerMessage(), 'Index pending memory')).resolves.toContain('(index pending)');
     expect(await fs.readdir(path.join(root, 'stones'))).toHaveLength(1);
+    service.close();
+  });
+
+  it('synchronizes a durable stone to the trusted contributor record idempotently without storing the raw Twitch ID', async () => {
+    const root = await makeRoot();
+    const writer = new StoneVaultWriter(root);
+    const people = new PersonNoteRepository(root, writer);
+    const service = new StoneService({ vaultPath: root, writer, people, idFactory: () => 'st_a1b2c3' });
+    await service.create(viewerMessage({ senderId: 'trusted-viewer-id', displayName: 'Public Name' }), 'A durable contribution');
+    const person = await people.find('trusted-viewer-id');
+    expect(person?.note.frontmatter).toMatchObject({ displayName: 'Public Name', stoneIds: ['st_a1b2c3'] });
+    expect(await fs.readFile(person!.filePath, 'utf8')).not.toContain('trusted-viewer-id');
+    service.close();
+  });
+
+  it('keeps a durably saved stone when contributor synchronization fails', async () => {
+    const root = await makeRoot();
+    const logs: string[] = [];
+    const brokenPeople = { addContribution: async (): Promise<never> => { throw new Error('write failed'); } } as unknown as PersonNoteRepository;
+    const service = new StoneService({ vaultPath: root, people: brokenPeople, idFactory: () => 'st_a1b2c3', log: (entry) => logs.push(entry) });
+    await expect(service.create(viewerMessage({ senderId: 'trusted-id' }), 'Still durable')).resolves.toContain('Stone saved: st_a1b2c3');
+    expect(await new StoneVaultWriter(root).findStone('st_a1b2c3')).toBeDefined();
+    expect(logs.some((entry) => entry.includes('contributor synchronization failed'))).toBe(true);
     service.close();
   });
 });

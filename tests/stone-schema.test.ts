@@ -62,6 +62,7 @@ author: Viewer
 ---
 Related: [[st_k3f9a2]]
 `);
+    if (lore.frontmatter.type !== 'lore') throw new Error('expected lore note');
     expect(typeof lore.frontmatter.created).toBe('string');
     expect(lore.frontmatter.created).toBe('2026-10-31T12:00:00.000Z');
     expect(parseStone(serializeStone(validNote())).frontmatter.created).toBe(validNote().frontmatter.created);

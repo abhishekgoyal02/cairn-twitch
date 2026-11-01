@@ -4,6 +4,7 @@ import type { NormalizedChatMessage } from './types.js';
 
 export type StoneCommandHandler = (message: NormalizedChatMessage, body: string) => Promise<string>;
 export type WhyCommandHandler = (topic: string) => Promise<string>;
+export type PublicCommandHandler = (message: NormalizedChatMessage) => Promise<string>;
 export type GovernanceCommandHandler = (message: NormalizedChatMessage, args: string) => Promise<string>;
 
 export interface MessageProcessorOptions {
@@ -13,9 +14,13 @@ export interface MessageProcessorOptions {
   reply: (channel: string, text: string) => Promise<void> | void;
   stone?: StoneCommandHandler;
   why?: WhyCommandHandler;
+  recap?: PublicCommandHandler;
+  mystones?: PublicCommandHandler;
   canon?: GovernanceCommandHandler;
   correct?: GovernanceCommandHandler;
   forget?: GovernanceCommandHandler;
+  promise?: GovernanceCommandHandler;
+  done?: GovernanceCommandHandler;
   log?: (message: string) => void;
 }
 
@@ -86,9 +91,24 @@ export class MessageProcessor {
       return;
     }
 
-    if (command.name === 'canon' || command.name === 'correct' || command.name === 'forget') {
+    if (command.name === 'recap' || command.name === 'mystones') {
+      const handler = command.name === 'recap' ? this.options.recap : this.options.mystones;
+      if (!handler) return;
+      this.options.log?.(`Recognized !${command.name} from ${message.sender} in #${message.channel}.`);
+      try {
+        await this.safeReply(message.channel, await handler(message));
+      } catch {
+        this.options.log?.(`Failed to process !${command.name} in #${message.channel}.`);
+        await this.safeReply(message.channel, 'That command could not be completed.');
+      }
+      return;
+    }
+
+    if (command.name === 'canon' || command.name === 'correct' || command.name === 'forget' || command.name === 'promise' || command.name === 'done') {
       const handler = command.name === 'canon' ? this.options.canon
-        : command.name === 'correct' ? this.options.correct : this.options.forget;
+        : command.name === 'correct' ? this.options.correct
+          : command.name === 'forget' ? this.options.forget
+            : command.name === 'promise' ? this.options.promise : this.options.done;
       if (!handler) return;
       const authorized = message.isModerator || message.isBroadcaster;
       const args = command.args;

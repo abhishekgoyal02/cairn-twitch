@@ -15,6 +15,10 @@ describe('overlay view model', () => {
   it('maps types and statuses to distinct visual styles', () => {
     expect(nodeVisualStyle(node('st_a1b2c3'))).toMatchObject({ shape: 'circle', fillMode: 'gradient', outlineStyle: 'solid', opacity: 1 });
     expect(nodeVisualStyle({ ...node('lore-1'), type: 'lore', status: 'canon' })).toMatchObject({ shape: 'circle', fillMode: 'solid', outlineStyle: 'solid' });
+    expect(nodeVisualStyle({ ...node('person-1'), type: 'person', status: 'active' })).toMatchObject({ shape: 'circle', fillMode: 'gradient' });
+    expect(nodeVisualStyle({ ...node('stream-1'), type: 'stream', status: 'completed' })).toMatchObject({ shape: 'circle', fillMode: 'gradient' });
+    expect(nodeVisualStyle({ ...node('loop-1'), type: 'loop', status: 'open' })).toMatchObject({ shape: 'circle', fillMode: 'gradient' });
+    expect(gradientKeyForNode({ ...node('stream-1'), type: 'stream' })).toBe('white');
     expect(nodeVisualStyle(node('old-1', 'Old', 'superseded'))).toMatchObject({ opacity: 0.35, outlineStyle: 'solid' });
   });
 
@@ -32,8 +36,16 @@ describe('overlay view model', () => {
     expect(createNodeDetailModel(first, [{ id: 'st_d4e5f6', title: 'Story' }])).toMatchObject({ id: 'st_a1b2c3', body: 'A remembered moment.', history: [{ type: 'canonized' }], related: [{ title: 'Story' }] });
   });
 
+  it('retains safe, Markdown-derived person and stream inspector details', () => {
+    const person = { ...node(`pe_${'a'.repeat(64)}`, 'Viewer', 'unconfirmed'), type: 'person' as const, status: 'active' as const, author: '', created: '', contributedStoneCount: 2 };
+    const stream = { ...node(`sr_${'b'.repeat(64)}`, 'Stream session', 'unconfirmed'), type: 'stream' as const, status: 'interrupted' as const, author: '', created: '2026-11-01T10:00:00.000Z', ended: undefined, recoveryObservedAt: '2026-11-01T11:00:00.000Z' };
+    expect(createNodeDetailModel(person, [])).toMatchObject({ title: 'Viewer', contributedStoneCount: 2 });
+    expect(createNodeDetailModel(stream, [])).toMatchObject({ status: 'interrupted', created: '2026-11-01T10:00:00.000Z', recoveryObservedAt: '2026-11-01T11:00:00.000Z' });
+    expect(createNodeDetailModel(stream, []).ended).toBeUndefined();
+  });
+
   it('uses deterministic varied colours and puts compact labels beneath every node', () => {
-    expect(NODE_GRADIENTS).toEqual(['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown', 'white']);
+    expect(NODE_GRADIENTS).toEqual(['red', 'yellow', 'blue', 'purple', 'green', 'orange', 'maroon', 'brown']);
     const colours = new Set(Array.from({ length: 80 }, (_, index) => gradientKeyForNode(node(`st_palette_${index}`))));
     expect(colours.size).toBeGreaterThanOrEqual(6);
     expect(gradientKeyForNode(node('st_palette_1'))).toBe(gradientKeyForNode(node('st_palette_1')));

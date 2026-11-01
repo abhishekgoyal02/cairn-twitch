@@ -1,10 +1,12 @@
-import type { VaultNote, NoteHistoryEvent, StoneSource, StoneStatus } from '../vault/stone-schema.js';
+import type { VaultNote, NoteHistoryEvent, StoneSource, StoneStatus, LoopStatus, StreamStatus } from '../vault/stone-schema.js';
+
+export type GraphNodeStatus = StoneStatus | LoopStatus | StreamStatus | 'active';
 
 export interface GraphNode {
   id: string;
   type: string;
   title: string;
-  status: StoneStatus;
+  status: GraphNodeStatus;
   relativePath: string;
   path: string;
   created: string;
@@ -16,6 +18,10 @@ export interface GraphNode {
   /** Cairn-recorded lifecycle entries, if the Markdown front matter has them. */
   history?: NoteHistoryEvent[];
   supersedes?: string;
+  /** Public, Markdown-derived details needed by the local inspector. */
+  contributedStoneCount?: number;
+  ended?: string;
+  recoveryObservedAt?: string;
 }
 
 export interface GraphEdge {

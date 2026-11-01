@@ -11,12 +11,15 @@
     "test": "vitest run",
     "reindex": "tsx src/reindex-cli.ts",
     "lint:vault": "tsx src/lint-vault-cli.ts",
+    "demo": "npm run build:overlay && tsx src/demo.ts",
     "llm:diagnose": "tsx src/intelligence/diagnose-cli.ts",
     "demo:globe": "npm run build:overlay && tsx src/globe-demo.ts"
   },
   "dependencies": {
+    "@twurple/api": "^8.2.0",
     "@twurple/auth": "^8.0.0",
     "@twurple/chat": "^8.0.0",
+    "@twurple/eventsub-ws": "^8.2.0",
     "@vitest/pretty-format": "^2.1.9",
     "chokidar": "^4.0.3",
     "d3": "^7.9.0",

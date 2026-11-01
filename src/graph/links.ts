@@ -14,7 +14,11 @@ export function resolveWikilinks(notes: VaultNoteRecord[]): LinkResolution {
     const id = record.note.frontmatter.id;
     const relative = record.relativePath.replaceAll('\\', '/');
     const filename = path.posix.basename(relative, '.md');
-    const title = record.note.frontmatter.title;
+    const title = record.note.frontmatter.type === 'person'
+      ? record.note.frontmatter.displayName
+      : record.note.frontmatter.type === 'stream'
+        ? `Stream ${record.note.frontmatter.streamId}`
+        : record.note.frontmatter.title;
     for (const key of [id, filename, relative, `${relative.slice(0, -3)}` , title]) {
       byKey.set(normalizeTarget(key), id);
     }
@@ -23,6 +27,15 @@ export function resolveWikilinks(notes: VaultNoteRecord[]): LinkResolution {
   const edges = new Map<string, GraphEdge>();
   const diagnostics: GraphDiagnostic[] = [];
   for (const record of notes) {
+    // These are typed, scanner-validated references. They are projected from
+    // front matter rather than inferred from names or note text. Their bodies
+    // also contain matching wikilinks for Obsidian readability; the edge map
+    // below intentionally collapses that duplicate declaration.
+    for (const target of declaredRelationshipTargets(record)) {
+      if (!byKey.has(normalizeTarget(target)) || target === record.note.frontmatter.id) continue;
+      const id = `${record.note.frontmatter.id}->${target}:wikilink`;
+      edges.set(id, { id, source: record.note.frontmatter.id, target, type: 'wikilink' });
+    }
     const body = record.note.body;
     for (const match of body.matchAll(WIKILINK)) {
       const rawTarget = match[1].trim();
@@ -47,6 +60,13 @@ export function resolveWikilinks(notes: VaultNoteRecord[]): LinkResolution {
     edges: [...edges.values()].sort((left, right) => left.id.localeCompare(right.id)),
     diagnostics: diagnostics.sort((left, right) => `${left.path}:${left.message}`.localeCompare(`${right.path}:${right.message}`)),
   };
+}
+
+function declaredRelationshipTargets(record: VaultNoteRecord): string[] {
+  const frontmatter = record.note.frontmatter;
+  if (frontmatter.type === 'person') return frontmatter.stoneIds;
+  if (frontmatter.type === 'stream') return [...frontmatter.stoneIds, ...frontmatter.openLoopIds];
+  return [];
 }
 
 function normalizeTarget(value: string): string {
